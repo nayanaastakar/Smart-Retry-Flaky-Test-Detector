@@ -78,11 +78,20 @@ class DriverManager:
                 "browser": "ALL"
             })
             
-            # Initialize ChromeDriver Service
-            service = Service(ChromeDriverManager().install())
-            
-            # Initialize WebDriver
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Initialize ChromeDriver Service with error handling
+            try:
+                service = Service(ChromeDriverManager().install())
+                # Initialize WebDriver
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            except Exception as driver_error:
+                # Fallback: Try without webdriver-manager if it fails
+                self.logger.warning(f"ChromeDriverManager failed: {str(driver_error)}")
+                self.logger.info("Attempting to use system ChromeDriver...")
+                try:
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                except Exception as system_error:
+                    self.logger.error(f"System ChromeDriver also failed: {str(system_error)}")
+                    raise Exception(f"Failed to initialize ChromeDriver: {str(driver_error)}")
             
             # Set timeouts
             self.driver.implicitly_wait(self.config.IMPLICIT_WAIT)
