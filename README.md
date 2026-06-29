@@ -1,5 +1,11 @@
 # Smart Retry & Flaky Test Detector
 
+![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
+![Selenium](https://img.shields.io/badge/selenium-4.23.1-green.svg)
+![PyTest](https://img.shields.io/badge/pytest-8.3.2-red.svg)
+![License](https://img.shields.io/badge/license-MIT-orange.svg)
+![Status](https://img.shields.io/badge/status-production--ready-success.svg)
+
 An intelligent Selenium-based automation testing framework that automatically retries failed tests, detects flaky tests, distinguishes them from genuine application failures, analyzes failure logs using AI, and generates detailed HTML reports.
 
 ## 🎯 Project Overview
