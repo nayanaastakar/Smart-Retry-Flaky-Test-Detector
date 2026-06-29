@@ -203,7 +203,7 @@ class TestLogger:
     
     def setup_method(self):
         """Setup for each test method."""
-        self.logger = TestLogger("test_logger")
+        self.logger = LogManager.get_logger("test_logger")
     
     def test_logger_initialization(self):
         """Test logger initialization."""
