@@ -333,7 +333,7 @@ class AIAnalyzer:
             self.logger.log_ai_analysis_start(test_name)
             
             # Check if AI analysis is enabled
-            if not self.config.AI_ANALYSIS_ENABLED:
+            if not self.config.ENABLE_AI:
                 self.logger.log_warning("AI analysis is disabled in configuration")
                 return self._get_disabled_response()
             

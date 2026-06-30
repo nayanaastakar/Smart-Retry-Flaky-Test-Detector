@@ -38,11 +38,24 @@ Analyze this Selenium test failure and provide a structured analysis in JSON for
 
 Focus on:
 1. Identifying whether this is a genuine application bug or a test infrastructure issue
-2. Distinguishing between flaky tests (timing, network, dynamic content) and permanent failures
-3. Providing specific, actionable fixes rather than generic advice
-4. Considering Selenium-specific issues (waits, locators, browser state)
-5. Recommending best practices for stable test automation
+2. Determining if the failure is likely to be intermittent (flaky)
+3. Providing specific, actionable recommendations for fixing the issue
+4. Suggesting best practices to prevent similar failures in the future
+5. Assessing the severity and impact of the failure
 
+Exception Details:
+{exception_name}
+{exception_message}
+{stack_trace}
+
+Test Context:
+{test_name}
+{test_description}
+{page_url}
+
+Additional Context:
+{screenshot_available}
+{console_logs_available}
 """
     return prompt
 

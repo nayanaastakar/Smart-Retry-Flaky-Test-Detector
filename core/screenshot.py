@@ -76,6 +76,34 @@ class ScreenshotManager:
         except Exception as e:
             self.logger.log_exception(e, f"Failed to capture screenshot for test: {test_name}")
             raise
+
+    def capture_on_failure(
+        self,
+        driver: webdriver.Chrome,
+        test_name: str,
+        exception: Optional[Exception] = None
+    ) -> Path:
+        """
+        Automatically capture screenshot on test failure.
+        
+        This method is designed to be called automatically when a test fails,
+        capturing the current browser state for debugging purposes.
+        
+        Args:
+            driver: Selenium WebDriver instance
+            test_name: Name of the test case that failed
+            exception: Optional exception that caused the failure
+            
+        Returns:
+            Path: Path to the saved screenshot file
+        """
+        try:
+            self.logger.log_failure(test_name, exception)
+            return self.capture_screenshot(driver, test_name, "failure")
+        except Exception as e:
+            self.logger.log_exception(e, f"Failed to capture failure screenshot for test: {test_name}")
+            # Return None if screenshot capture fails, don't raise to avoid masking original error
+            return None
     
     def capture_screenshot_base64(
         self,

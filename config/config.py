@@ -1,222 +1,161 @@
 """
-Configuration Module for Smart Retry & Flaky Test Detector
+Configuration Module for Smart Retry & Flaky Test Detector - Updated for Module 4
 
-This module contains all configuration settings for the framework including:
-- Browser settings
-- Timeout configurations
-- Retry settings
-- Base URLs
-- File paths
-- AI API configurations
+Adds:
+- Screenshot configuration
+- Browser log configuration
+- Log format settings for TestLogger
+- SCRIPT_TIMEOUT for driver compatibility
 """
 
 import os
+import json
 from pathlib import Path
-from typing import Optional
 
 
 class Config:
     """
     Configuration class for the Smart Retry & Flaky Test Detector framework.
-    
+
     This class centralizes all configuration parameters to ensure easy maintenance
     and modification of framework settings.
     """
-    
+
     # Project Root Directory
     PROJECT_ROOT = Path(__file__).parent.parent
-    
+
     # Browser Configuration
     BROWSER: str = "chrome"
     HEADLESS_MODE: bool = False
     BROWSER_WINDOW_SIZE: str = "1920,1080"
-    
+
     # Timeout Configurations (in seconds)
     IMPLICIT_WAIT: int = 10
     EXPLICIT_WAIT: int = 20
     PAGE_LOAD_TIMEOUT: int = 30
     SCRIPT_TIMEOUT: int = 30
-    
-    # Retry Configuration
-    MAX_RETRY_COUNT: int = 3
-    RETRY_DELAY: float = 2.0  # Delay between retries in seconds
-    
-    # Base URLs for Test Applications
-    BASE_URL: str = "https://www.saucedemo.com"
+
+    # Base URL for SauceDemo
     SAUCE_DEMO_URL: str = "https://www.saucedemo.com"
-    AUTOMATION_EXERCISE_URL: str = "https://automationexercise.com"
-    HEROKUAPP_URL: str = "https://the-internet.herokuapp.com"
+
+    # SauceDemo Login Credentials
+    SAUCE_DEMO_USERNAME: str = "standard_user"
+    SAUCE_DEMO_PASSWORD: str = "secret_sauce"
+
+    # Retry Engine Configuration - Module 2
+    MAX_RETRIES: int = 2
+    RETRY_DELAY: float = 2.0
+    MAX_RETRY_COUNT: int = 2
+
+    # Flaky Detection Configuration - Module 3
+    ENABLE_FLAKY_DETECTION: bool = True
+    CONFIDENCE_THRESHOLD: int = 80
+
+    # ─── Module 4: Screenshot & Browser Log Configuration ────────────────────
+    ENABLE_SCREENSHOTS: bool = True
+    ENABLE_BROWSER_LOGS: bool = True
+    SCREENSHOT_FOLDER: str = "screenshots"
+    LOG_FOLDER: str = "logs"
+
+    # ─── Module 5: Report Configuration ──────────────────────────────────────
+    REPORT_FOLDER: str = "reports"
+    AUTO_GENERATE_REPORT: bool = True
+    OPEN_REPORT_AFTER_EXECUTION: bool = False
+
+    # ─── Module 6: AI Analysis Configuration (Ollama / OpenAI) ────────────────────────
+    ENABLE_AI: bool = True
+    OLLAMA_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.1"
+    OPENAI_API_KEY: str = ""
+    AI_TIMEOUT: int = 60
+
+    # ─── Module 7: Analytics & Execution History ─────────────────────────────
+    ENABLE_HISTORY: bool = True
+    ENABLE_ANALYTICS: bool = True
+    HISTORY_FILE: str = "history/execution_history.json"
+    AUTO_REFRESH: bool = False  # Disabled – was causing browser to keep refreshing
+    THEME: str = "dark"
     
-    # File Paths
-    SCREENSHOT_PATH: Path = PROJECT_ROOT / "screenshots"
-    LOG_PATH: Path = PROJECT_ROOT / "logs"
-    REPORT_PATH: Path = PROJECT_ROOT / "reports"
-    CONFIG_PATH: Path = PROJECT_ROOT / "config"
-    
-    # AI Configuration
-    OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL: str = "gpt-4o"
-    OPENAI_TEMPERATURE: float = 0.3
-    OPENAI_MAX_TOKENS: int = 1000
-    
-    # Ollama Configuration (for local AI)
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3"
-    OLLAMA_TEMPERATURE: float = 0.3
-    
-    # AI Analysis Settings
-    AI_ANALYSIS_ENABLED: bool = True
-    AI_ANALYSIS_TIMEOUT: int = 30  # seconds
-    
-    # Logging Configuration
-    LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    # Path helpers (resolved to absolute paths)
+    SCREENSHOT_PATH: Path = PROJECT_ROOT / SCREENSHOT_FOLDER
+    LOG_PATH: Path = PROJECT_ROOT / LOG_FOLDER
+    REPORT_PATH: Path = PROJECT_ROOT / REPORT_FOLDER
+
+    # Logging format used by TestLogger
+    LOG_LEVEL: str = "DEBUG"
+    LOG_FORMAT: str = "%(asctime)s [%(levelname)8s] %(message)s"
     LOG_DATE_FORMAT: str = "%Y-%m-%d %H:%M:%S"
     LOG_FILE_NAME: str = "test_execution.log"
-    
-    # Screenshot Configuration
-    SCREENSHOT_FORMAT: str = "png"
-    SCREENSHOT_QUALITY: int = 90
-    
-    # Console Logs Configuration
-    CAPTURE_CONSOLE_LOGS: bool = True
-    CONSOLE_LOG_TYPES: list = ["log", "error", "warning", "info"]
-    
-    # Report Configuration
-    REPORT_TITLE: str = "Smart Retry & Flaky Test Detector Report"
-    REPORT_TEMPLATE: str = "default"
-    INCLUDE_SCREENSHOTS: bool = True
-    INCLUDE_CONSOLE_LOGS: bool = True
-    INCLUDE_AI_ANALYSIS: bool = True
-    
-    # Test Configuration
-    TEST_PARALLEL_EXECUTION: bool = False
-    TEST_WORKERS: int = 2
-    
-    # Flaky Test Detection Thresholds
-    FLAKY_DETECTION_ENABLED: bool = True
-    FLAKY_THRESHOLD: int = 2  # Number of retries to consider as flaky
-    
-    # Exception Classification Patterns
-    TIMEOUT_EXCEPTIONS: list = [
-        "TimeoutException",
-        "TimeoutError"
-    ]
-    
-    ELEMENT_NOT_FOUND_EXCEPTIONS: list = [
-        "NoSuchElementException",
-        "NoSuchFrameException"
-    ]
-    
-    STALE_ELEMENT_EXCEPTIONS: list = [
-        "StaleElementReferenceException"
-    ]
-    
-    ELEMENT_INTERACTION_EXCEPTIONS: list = [
-        "ElementClickInterceptedException",
-        "ElementNotInteractableException",
-        "ElementNotSelectableException"
-    ]
-    
-    NETWORK_EXCEPTIONS: list = [
-        "WebDriverException",
-        "ConnectionError"
-    ]
-    
-    @classmethod
-    def create_directories(cls) -> None:
-        """
-        Create all necessary directories if they don't exist.
-        
-        This method ensures that all required directories for storing
-        screenshots, logs, and reports are created before test execution.
-        """
-        directories = [
-            cls.SCREENSHOT_PATH,
-            cls.LOG_PATH,
-            cls.REPORT_PATH
-        ]
-        
-        for directory in directories:
-            directory.mkdir(parents=True, exist_ok=True)
-    
-    @classmethod
-    def get_screenshot_path(cls, test_name: str) -> Path:
-        """
-        Generate a unique screenshot path for a given test.
-        
-        Args:
-            test_name: Name of the test case
-            
-        Returns:
-            Path object for the screenshot file
-        """
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{test_name}_{timestamp}.{cls.SCREENSHOT_FORMAT}"
-        return cls.SCREENSHOT_PATH / filename
-    
-    @classmethod
-    def get_log_path(cls, test_name: str) -> Path:
-        """
-        Generate a unique log path for a given test.
-        
-        Args:
-            test_name: Name of the test case
-            
-        Returns:
-            Path object for the log file
-        """
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{test_name}_{timestamp}.log"
-        return cls.LOG_PATH / filename
-    
-    @classmethod
-    def get_console_log_path(cls, test_name: str) -> Path:
-        """
-        Generate a unique console log path for a given test.
-        
-        Args:
-            test_name: Name of the test case
-            
-        Returns:
-            Path object for the console log file
-        """
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{test_name}_console_{timestamp}.txt"
-        return cls.LOG_PATH / filename
-    
-    @classmethod
-    def get_report_path(cls) -> Path:
-        """
-        Generate a report path with timestamp.
-        
-        Returns:
-            Path object for the HTML report file
-        """
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"test_report_{timestamp}.html"
-        return cls.REPORT_PATH / filename
-    
-    @classmethod
-    def validate_config(cls) -> bool:
-        """
-        Validate the configuration settings.
-        
-        Returns:
-            bool: True if configuration is valid, False otherwise
-        """
-        # Check if AI analysis is enabled but API key is missing
-        if cls.AI_ANALYSIS_ENABLED and not cls.OPENAI_API_KEY:
-            print("Warning: AI Analysis is enabled but OPENAI_API_KEY is not set.")
-            print("Set OPENAI_API_KEY environment variable or disable AI analysis.")
-            return False
-        
-        return True
 
+    def __init__(self):
+        self.SETTINGS_JSON_PATH = self.PROJECT_ROOT / "config" / "settings.json"
+        self.HISTORY_PATH = self.PROJECT_ROOT / self.HISTORY_FILE
+        
+        # Ensure directories exist at runtime
+        self.SCREENSHOT_PATH.mkdir(parents=True, exist_ok=True)
+        self.LOG_PATH.mkdir(parents=True, exist_ok=True)
+        self.REPORT_PATH.mkdir(parents=True, exist_ok=True)
+        self.HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load persistent settings
+        self.load_settings()
 
-# Initialize configuration and create directories
-Config.create_directories()
+    def load_settings(self) -> None:
+        """Loads user settings from config/settings.json if it exists."""
+        if self.SETTINGS_JSON_PATH.exists():
+            try:
+                with open(self.SETTINGS_JSON_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.MAX_RETRIES = int(data.get("retry_count", self.MAX_RETRIES))
+                    self.MAX_RETRY_COUNT = self.MAX_RETRIES
+                    self.HEADLESS_MODE = bool(data.get("headless_mode", self.HEADLESS_MODE))
+                    self.ENABLE_AI = bool(data.get("ai_enabled", self.ENABLE_AI))
+                    self.BROWSER = str(data.get("browser", self.BROWSER))
+                    self.THEME = str(data.get("theme", "dark"))
+            except Exception as e:
+                print(f"Error loading settings.json: {e}")
+        else:
+            self.THEME = "dark"
+            self.save_settings()
+
+    def save_settings(self) -> None:
+        """Saves current user settings to config/settings.json."""
+        data = {
+            "retry_count": self.MAX_RETRIES,
+            "headless_mode": self.HEADLESS_MODE,
+            "ai_enabled": self.ENABLE_AI,
+            "browser": self.BROWSER,
+            "theme": getattr(self, "THEME", "dark")
+        }
+        try:
+            with open(self.SETTINGS_JSON_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except Exception as e:
+            print(f"Error saving settings.json: {e}")
+
+    def validate_configuration(self) -> list:
+        """
+        Validates settings and configurations before starting test runs.
+        Returns a list of error strings if any are found.
+        """
+        errors = []
+        if not isinstance(self.MAX_RETRIES, int) or self.MAX_RETRIES < 1 or self.MAX_RETRIES > 40:
+            errors.append("Retry Count must be an integer between 1 and 40.")
+        if self.BROWSER.lower() not in ["chrome", "firefox", "edge"]:
+            errors.append(f"Browser '{self.BROWSER}' is not supported. Supported browsers: chrome, firefox, edge.")
+        if not self.SCREENSHOT_PATH.parent.exists():
+            errors.append(f"Project directory is invalid; parent of SCREENSHOT_PATH does not exist: {self.SCREENSHOT_PATH.parent}")
+        return errors
+
+    def get_screenshot_path(self, test_name: str) -> Path:
+        """Return timestamped screenshot path for a test."""
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self.SCREENSHOT_PATH / f"{test_name}_{ts}.png"
+
+    def get_log_path(self, test_name: str) -> Path:
+        """Return timestamped log path for a test."""
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return self.LOG_PATH / f"{test_name}_{ts}.log"
+

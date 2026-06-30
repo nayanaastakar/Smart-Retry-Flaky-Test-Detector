@@ -1,8 +1,8 @@
 """
-Login Page Object Model for Saucedemo
+Login Page Object Model - Module 1
 
-This module implements the Page Object Model for the login page of Saucedemo.
-It provides methods to interact with login page elements and perform login operations.
+This module implements the Page Object Model for the SauceDemo login page.
+It encapsulates all interactions with the login page elements.
 """
 
 from selenium.webdriver.common.by import By
@@ -10,58 +10,44 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from typing import Optional
 
-from core.driver import get_driver_manager
-from core.logger import get_logger
+from config.config import Config
 
 
 class LoginPage:
     """
-    Page Object Model for the Saucedemo Login Page.
+    Page Object for SauceDemo Login Page - Module 1.
     
-    This class encapsulates all interactions with the login page including:
-    - Locating page elements
-    - Entering credentials
-    - Clicking login button
-    - Verifying login success/failure
+    This class provides methods to interact with the login page elements
+    including navigation, login form submission, and login verification.
     """
     
-    # Page Locators
-    USERNAME_INPUT = (By.ID, "user-name")
-    PASSWORD_INPUT = (By.ID, "password")
+    # Locators for SauceDemo login page
+    USERNAME_FIELD = (By.ID, "user-name")
+    PASSWORD_FIELD = (By.ID, "password")
     LOGIN_BUTTON = (By.ID, "login-button")
     ERROR_MESSAGE = (By.CSS_SELECTOR, "[data-test='error']")
-    LOGO = (By.CLASS_NAME, "login_logo")
+    INVENTORY_CONTAINER = (By.ID, "inventory_container")
     
-    # Valid credentials for Saucedemo
-    STANDARD_USER = "standard_user"
-    LOCKED_OUT_USER = "locked_out_user"
-    PROBLEM_USER = "problem_user"
-    PERFORMANCE_GLITCH_USER = "performance_glitch_user"
-    VALID_PASSWORD = "secret_sauce"
-    
-    def __init__(self):
+    def __init__(self, driver):
         """
-        Initialize the LoginPage.
-        
-        Sets up driver manager and logger instances.
-        """
-        self.driver_manager = get_driver_manager()
-        self.logger = get_logger("LoginPage")
-        self.driver = self.driver_manager.get_driver()
-    
-    def navigate_to_login_page(self, url: str) -> None:
-        """
-        Navigate to the login page.
+        Initialize the LoginPage with a WebDriver instance.
         
         Args:
-            url: URL of the login page
+            driver: Selenium WebDriver instance
+        """
+        self.driver = driver
+        self.config = Config()
+        self.wait = WebDriverWait(driver, self.config.EXPLICIT_WAIT)
+    
+    def navigate(self) -> None:
+        """
+        Navigate to the SauceDemo login page.
         """
         try:
-            self.driver_manager.navigate_to(url)
-            self.logger.log_info(f"Navigated to login page: {url}")
+            self.driver.get(self.config.SAUCE_DEMO_URL)
+            self.wait.until(EC.presence_of_element_located(self.USERNAME_FIELD))
         except Exception as e:
-            self.logger.log_exception(e, "Failed to navigate to login page")
-            raise
+            raise Exception(f"Failed to navigate to login page: {str(e)}")
     
     def enter_username(self, username: str) -> None:
         """
@@ -71,13 +57,13 @@ class LoginPage:
             username: Username to enter
         """
         try:
-            username_field = self.driver_manager.wait_for_element_visible(self.USERNAME_INPUT)
+            username_field = self.wait.until(
+                EC.presence_of_element_located(self.USERNAME_FIELD)
+            )
             username_field.clear()
             username_field.send_keys(username)
-            self.logger.log_info(f"Entered username: {username}")
         except Exception as e:
-            self.logger.log_exception(e, "Failed to enter username")
-            raise
+            raise Exception(f"Failed to enter username: {str(e)}")
     
     def enter_password(self, password: str) -> None:
         """
@@ -87,131 +73,69 @@ class LoginPage:
             password: Password to enter
         """
         try:
-            password_field = self.driver_manager.wait_for_element_visible(self.PASSWORD_INPUT)
+            password_field = self.wait.until(
+                EC.presence_of_element_located(self.PASSWORD_FIELD)
+            )
             password_field.clear()
             password_field.send_keys(password)
-            self.logger.log_info("Entered password")
         except Exception as e:
-            self.logger.log_exception(e, "Failed to enter password")
-            raise
+            raise Exception(f"Failed to enter password: {str(e)}")
     
     def click_login_button(self) -> None:
         """
         Click the login button.
         """
         try:
-            login_button = self.driver_manager.wait_for_element_clickable(self.LOGIN_BUTTON)
+            login_button = self.wait.until(
+                EC.element_to_be_clickable(self.LOGIN_BUTTON)
+            )
             login_button.click()
-            self.logger.log_info("Clicked login button")
         except Exception as e:
-            self.logger.log_exception(e, "Failed to click login button")
-            raise
+            raise Exception(f"Failed to click login button: {str(e)}")
     
     def login(self, username: str, password: str) -> None:
         """
-        Perform complete login operation.
+        Perform login with given credentials.
         
         Args:
-            username: Username to login with
-            password: Password to login with
+            username: Username for login
+            password: Password for login
         """
         try:
             self.enter_username(username)
             self.enter_password(password)
             self.click_login_button()
-            self.logger.log_info(f"Login attempt with username: {username}")
         except Exception as e:
-            self.logger.log_exception(e, "Login operation failed")
-            raise
+            raise Exception(f"Login failed: {str(e)}")
     
-    def login_with_standard_user(self) -> None:
+    def login_with_default_credentials(self) -> None:
         """
-        Login with standard user credentials.
+        Perform login using default credentials from config.
         """
-        self.login(self.STANDARD_USER, self.VALID_PASSWORD)
-    
-    def login_with_locked_user(self) -> None:
-        """
-        Login with locked out user credentials (intentional failure).
-        """
-        self.login(self.LOCKED_OUT_USER, self.VALID_PASSWORD)
-    
-    def login_with_problem_user(self) -> None:
-        """
-        Login with problem user credentials.
-        """
-        self.login(self.PROBLEM_USER, self.VALID_PASSWORD)
-    
-    def login_with_performance_glitch_user(self) -> None:
-        """
-        Login with performance glitch user credentials (intentional flaky scenario).
-        """
-        self.login(self.PERFORMANCE_GLITCH_USER, self.VALID_PASSWORD)
-    
-    def get_error_message(self) -> Optional[str]:
-        """
-        Get the error message displayed on login failure.
-        
-        Returns:
-            Optional[str]: Error message text if present, None otherwise
-        """
-        try:
-            error_element = self.driver_manager.wait_for_element_visible(self.ERROR_MESSAGE, timeout=5)
-            error_text = error_element.text
-            self.logger.log_info(f"Error message: {error_text}")
-            return error_text
-        except Exception:
-            self.logger.log_info("No error message found")
-            return None
+        self.login(self.config.SAUCE_DEMO_USERNAME, self.config.SAUCE_DEMO_PASSWORD)
     
     def is_login_successful(self) -> bool:
         """
-        Check if login was successful by verifying URL change.
+        Verify if login was successful by checking for inventory container.
         
         Returns:
             bool: True if login successful, False otherwise
         """
         try:
-            # After successful login, URL should contain /inventory.html
-            current_url = self.driver_manager.get_current_url()
-            is_successful = "inventory.html" in current_url
-            self.logger.log_info(f"Login successful: {is_successful}")
-            return is_successful
-        except Exception as e:
-            self.logger.log_exception(e, "Failed to check login status")
+            self.wait.until(EC.presence_of_element_located(self.INVENTORY_CONTAINER))
+            return True
+        except:
             return False
     
-    def is_page_loaded(self) -> bool:
+    def get_error_message(self) -> Optional[str]:
         """
-        Check if the login page is fully loaded.
+        Get error message if login failed.
         
         Returns:
-            bool: True if page loaded, False otherwise
+            Optional[str]: Error message text if present, None otherwise
         """
         try:
-            logo = self.driver_manager.wait_for_element_visible(self.LOGO, timeout=10)
-            return logo is not None
-        except Exception:
-            return False
-    
-    def get_page_title(self) -> str:
-        """
-        Get the page title.
-        
-        Returns:
-            str: Page title
-        """
-        return self.driver_manager.get_page_title()
-    
-    def clear_credentials(self) -> None:
-        """
-        Clear username and password fields.
-        """
-        try:
-            username_field = self.driver_manager.wait_for_element_visible(self.USERNAME_INPUT)
-            password_field = self.driver_manager.wait_for_element_visible(self.PASSWORD_INPUT)
-            username_field.clear()
-            password_field.clear()
-            self.logger.log_info("Cleared credentials")
-        except Exception as e:
-            self.logger.log_exception(e, "Failed to clear credentials")
+            error_element = self.driver.find_element(*self.ERROR_MESSAGE)
+            return error_element.text
+        except:
+            return None

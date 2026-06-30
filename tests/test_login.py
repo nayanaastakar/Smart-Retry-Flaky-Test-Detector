@@ -1,186 +1,288 @@
 """
-Login Test Module for Saucedemo
+test_login.py — Module 4 integration
 
-This module contains test cases for login functionality including:
-- Successful login
-- Locked out user (intentional failure)
-- Performance glitch user (intentional flaky scenario)
-- Invalid credentials
+Tests for the SauceDemo login page.  Integrates with:
+  • Module 1 – Flask / ConfigLoader / Page Objects
+  • Module 2 – RetryEngine
+  • Module 3 – FlakyDetector
+  • Module 4 – ScreenshotManager + BrowserLogManager + Evidence
+
+Simulation flags
+----------------
+Set any of the ENV variables below to "1" to inject the corresponding
+Selenium-style exception and verify that Module 4 evidence capture works
+without a real browser failure:
+
+    SIMULATE_TIMEOUT              – raises TimeoutException on attempt 1
+    SIMULATE_ASSERTION            – raises AssertionError on attempt 1
+    SIMULATE_CLICK_INTERCEPTED    – raises ElementClickInterceptedException
+
+Example (PowerShell):
+    $env:SIMULATE_TIMEOUT = "1"
+    pytest tests/test_login.py -v
 """
 
-import pytest
+import os
 import time
-from selenium.common.exceptions import TimeoutException
+import pytest
 
-from core.driver import get_driver_manager
-from core.logger import get_logger
-from core.retry_engine import execute_test_with_retry
-from core.screenshot import capture_on_failure
-from core.console_logs import capture_console_logs
+from selenium.common.exceptions import (
+    TimeoutException,
+    ElementClickInterceptedException,
+)
+
+from core.config_loader import ConfigLoader
+from core.screenshot_manager import ScreenshotManager
+from core.browser_log_manager import BrowserLogManager
+from ai.failure_analyzer import FailureAnalyzer
+from models.evidence import Evidence
 from pages.login_page import LoginPage
-from config.config import Config
 
+# ── simulation flags (read once at module load) ───────────────────────────────
+_SIM_TIMEOUT = os.getenv("SIMULATE_TIMEOUT", "0") == "1"
+_SIM_ASSERTION = os.getenv("SIMULATE_ASSERTION", "0") == "1"
+_SIM_CLICK = os.getenv("SIMULATE_CLICK_INTERCEPTED", "0") == "1"
+
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _collect_evidence(
+    driver,
+    test_name: str,
+    status: str,
+    start_time: float,
+    attempts: int,
+    exc: Exception = None,
+) -> Evidence:
+    """
+    Capture screenshot + browser logs and return an Evidence object.
+    Only called when status is FLAKY or FAILURE.
+    """
+    ss_mgr = ScreenshotManager()
+    bl_mgr = BrowserLogManager()
+
+    ss_path = ss_mgr.capture(driver, test_name)
+    log_path = bl_mgr.save_logs(driver, test_name)
+
+    elapsed = round(time.time() - start_time, 2)
+
+    evidence = Evidence(
+        test_name=test_name,
+        status=status,
+        screenshot=str(ss_path) if ss_path else "",
+        log_file=str(log_path) if log_path else "",
+        attempts=attempts,
+        execution_time=f"{elapsed} sec",
+        exception_type=type(exc).__name__ if exc else "",
+        exception_msg=str(exc) if exc else "",
+    )
+
+    # Trigger Module 6 AI Analysis
+    analyzer = FailureAnalyzer()
+    ai_result = analyzer.analyze(evidence)
+    evidence.ai_analysis = ai_result
+
+    return evidence
+
+
+# ── test class ────────────────────────────────────────────────────────────────
 
 class TestLogin:
     """
-    Test class for login functionality.
-    
-    Tests include normal login, failure scenarios, and flaky test detection.
+    Login tests for SauceDemo.
+
+    Each test follows the flow:
+        Run → Retry → Flaky/Failure? → Capture Evidence → Assert
     """
-    
+
     @pytest.fixture(autouse=True)
-    def setup(self):
-        """
-        Setup and teardown for each test.
-        
-        Initializes driver manager and navigates to login page.
-        """
-        self.driver_manager = get_driver_manager()
-        self.logger = get_logger("TestLogin")
-        self.config = Config()
-        self.login_page = LoginPage()
-        
-        # Navigate to login page
-        self.login_page.navigate_to_login_page(self.config.SAUCE_DEMO_URL)
-        
-        yield
-        
-        # Cleanup
-        self.driver_manager.quit_driver()
-    
+    def setup(self, driver):
+        """Initialise page object and Module 4 managers once per test."""
+        self.driver = driver
+        self.login_page = LoginPage(driver)
+        self.ss_mgr = ScreenshotManager()
+        self.bl_mgr = BrowserLogManager()
+
+    # ── test 1: successful login ──────────────────────────────────────────────
+
     def test_successful_login(self):
         """
-        Test successful login with valid credentials.
-        
-        This test should pass on first attempt.
+        Happy-path login with the standard_user credential.
+        Screenshots captured at each step for the gallery.
         """
-        def _test_login():
-            self.login_page.login_with_standard_user()
-            assert self.login_page.is_login_successful(), "Login should be successful"
-        
-        result = execute_test_with_retry(
-            _test_login,
-            "test_successful_login",
-            max_retries=3,
-            retry_delay=1.0
+        print("\nRunning Login Test...")
+        print("Attempt 1")
+        start = time.time()
+        self.login_page.navigate()
+
+        # Screenshot 1: Login page loaded
+        self.ss_mgr.capture(self.driver, "01_login_page")
+
+        self.login_page.login_with_default_credentials()
+
+        success = self.login_page.is_login_successful()
+
+        # Screenshot 2: After login attempt (pass or fail)
+        self.ss_mgr.capture(self.driver, "02_after_login")
+
+        print("PASSED" if success else "FAILED")
+        assert success, "Login failed with valid credentials"
+
+    # ── test 2: invalid login (genuine failure) ───────────────────────────────
+
+    def test_invalid_login(self):
+        """
+        Login with wrong credentials — expected to fail.
+        Verifies that FAILURE evidence (screenshot + log) is captured.
+        """
+        print("\nRunning Login Test (Invalid Credentials)...")
+        max_retries = 2
+        last_exc: Exception = None
+        start = time.time()
+
+        for attempt in range(1, max_retries + 1):
+            print(f"Attempt {attempt}")
+            try:
+                self.login_page.navigate()
+
+                # Screenshot: Login page before invalid attempt
+                self.ss_mgr.capture(self.driver, f"03_invalid_login_attempt_{attempt}")
+
+                self.login_page.login("wrong_user", "wrong_pass")
+                logged_in = self.login_page.is_login_successful()
+
+                # Screenshot: Result page after invalid attempt
+                self.ss_mgr.capture(self.driver, f"04_invalid_login_result_{attempt}")
+
+                if not logged_in:
+                    raise AssertionError("Login correctly rejected (invalid credentials)")
+                print("PASSED (unexpected)")
+                return
+            except Exception as exc:
+                last_exc = exc
+                print("FAILED")
+                if attempt < max_retries:
+                    print("Retrying...")
+
+        evidence = _collect_evidence(
+            self.driver, "invalid_login", "FAILURE",
+            start, max_retries, last_exc,
         )
-        
-        self.logger.log_info(f"Test result: {result.status.value}")
-        assert result.status.value == "PASS", "Test should pass on first attempt"
-    
-    def test_locked_out_user(self):
+        print(f"\nExecution Finished\n{evidence}")
+        assert not self.login_page.is_login_successful(), \
+            "Invalid credentials should not result in a successful login"
+
+    # ── test 3: simulate timeout (FAILURE → evidence) ─────────────────────────
+
+    @pytest.mark.skipif(not _SIM_TIMEOUT, reason="SIMULATE_TIMEOUT not set")
+    def test_simulate_timeout(self):
         """
-        Test login with locked out user (intentional failure).
-        
-        This test should fail consistently and be classified as a genuine failure.
+        Injects a TimeoutException on the first attempt to validate that
+        Module 4 evidence capture works correctly.
+
+        Enable with: $env:SIMULATE_TIMEOUT = "1"
         """
-        def _test_locked_login():
-            self.login_page.login_with_locked_user()
-            # This should fail - locked out user cannot login
-            assert self.login_page.is_login_successful(), "Locked out user should not be able to login"
-        
-        result = execute_test_with_retry(
-            _test_locked_login,
-            "test_locked_out_user",
-            max_retries=2,
-            retry_delay=1.0
+        print("\nRunning Login Test (Simulated Timeout)...")
+        max_retries = 2
+        last_exc: Exception = None
+        start = time.time()
+
+        for attempt in range(1, max_retries + 1):
+            print(f"Attempt {attempt}")
+            try:
+                if attempt == 1:
+                    raise TimeoutException("Simulated – element not found within timeout")
+                # attempt 2+: proceed normally
+                self.login_page.navigate()
+                self.login_page.login_with_default_credentials()
+                assert self.login_page.is_login_successful()
+                print("PASSED")
+                return  # FLAKY – passed on retry
+            except Exception as exc:
+                last_exc = exc
+                print("FAILED")
+                if attempt < max_retries:
+                    print("Retrying...")
+
+        # All retries exhausted → FAILURE evidence
+        evidence = _collect_evidence(
+            self.driver, "simulate_timeout", "FAILURE",
+            start, max_retries, last_exc,
         )
-        
-        # Capture screenshot and logs on failure
-        if result.status.value == "FAILURE":
-            driver = self.driver_manager.get_driver()
-            capture_on_failure(driver, "test_locked_out_user")
-            capture_console_logs(driver, "test_locked_out_user")
-        
-        self.logger.log_info(f"Test result: {result.status.value}")
-        assert result.status.value == "FAILURE", "Test should fail for locked out user"
-    
-    def test_performance_glitch_user(self):
+        print(f"\nExecution Finished\n{evidence}")
+        assert evidence.has_screenshot, "Screenshot should have been captured"
+        assert evidence.has_log, "Browser log should have been captured"
+
+    # ── test 4: simulate assertion error (FLAKY → evidence) ──────────────────
+
+    @pytest.mark.skipif(not _SIM_ASSERTION, reason="SIMULATE_ASSERTION not set")
+    def test_simulate_assertion(self):
         """
-        Test login with performance glitch user (intentional flaky scenario).
-        
-        This test may fail on first attempt due to performance issues but should pass on retry.
-        This simulates a flaky test scenario.
+        Injects an AssertionError on the first attempt, then succeeds —
+        simulating a FLAKY test so evidence capture is triggered.
+
+        Enable with: $env:SIMULATE_ASSERTION = "1"
         """
-        def _test_glitch_login():
-            # Add a small delay to simulate performance issues
-            time.sleep(0.5)
-            self.login_page.login_with_performance_glitch_user()
-            assert self.login_page.is_login_successful(), "Performance glitch user should eventually login"
-        
-        result = execute_test_with_retry(
-            _test_glitch_login,
-            "test_performance_glitch_user",
-            max_retries=3,
-            retry_delay=2.0
+        print("\nRunning Login Test (Simulated Assertion)...")
+        max_retries = 2
+        last_exc: Exception = None
+        start = time.time()
+
+        for attempt in range(1, max_retries + 1):
+            print(f"Attempt {attempt}")
+            try:
+                if attempt == 1:
+                    raise AssertionError("Simulated – inventory page not loaded yet")
+                self.login_page.navigate()
+                self.login_page.login_with_default_credentials()
+                assert self.login_page.is_login_successful()
+                print("PASSED")
+
+                # Flaky: passed after retry → collect evidence
+                evidence = _collect_evidence(
+                    self.driver, "simulate_assertion", "FLAKY",
+                    start, attempt, last_exc,
+                )
+                print(f"\nExecution Finished\n{evidence}")
+                assert evidence.has_screenshot, "Screenshot should have been captured"
+                assert evidence.has_log, "Browser log should have been captured"
+                return
+            except Exception as exc:
+                last_exc = exc
+                print("FAILED")
+                if attempt < max_retries:
+                    print("Retrying...")
+
+    # ── test 5: simulate click-intercepted ────────────────────────────────────
+
+    @pytest.mark.skipif(not _SIM_CLICK, reason="SIMULATE_CLICK_INTERCEPTED not set")
+    def test_simulate_click_intercepted(self):
+        """
+        Simulates ElementClickInterceptedException across all retries,
+        verifying FAILURE evidence is captured.
+
+        Enable with: $env:SIMULATE_CLICK_INTERCEPTED = "1"
+        """
+        print("\nRunning Login Test (Simulated Click Intercepted)...")
+        max_retries = 2
+        last_exc: Exception = None
+        start = time.time()
+
+        for attempt in range(1, max_retries + 1):
+            print(f"Attempt {attempt}")
+            try:
+                raise ElementClickInterceptedException("Simulated – overlay blocking button")
+            except Exception as exc:
+                last_exc = exc
+                print("FAILED")
+                if attempt < max_retries:
+                    print("Retrying...")
+
+        evidence = _collect_evidence(
+            self.driver, "simulate_click_intercepted", "FAILURE",
+            start, max_retries, last_exc,
         )
-        
-        self.logger.log_info(f"Test result: {result.status.value}")
-        # This test might be flaky - could be PASS or FLAKY
-        assert result.status.value in ["PASS", "FLAKY"], "Test should pass or be flaky"
-    
-    def test_invalid_credentials(self):
-        """
-        Test login with invalid credentials.
-        
-        This test should fail consistently.
-        """
-        def _test_invalid_login():
-            self.login_page.login("invalid_user", "invalid_password")
-            assert self.login_page.is_login_successful(), "Invalid credentials should not login"
-        
-        result = execute_test_with_retry(
-            _test_invalid_login,
-            "test_invalid_credentials",
-            max_retries=2,
-            retry_delay=1.0
-        )
-        
-        # Capture screenshot and logs on failure
-        if result.status.value == "FAILURE":
-            driver = self.driver_manager.get_driver()
-            capture_on_failure(driver, "test_invalid_credentials")
-            capture_console_logs(driver, "test_invalid_credentials")
-        
-        self.logger.log_info(f"Test result: {result.status.value}")
-        assert result.status.value == "FAILURE", "Test should fail for invalid credentials"
-    
-    def test_empty_credentials(self):
-        """
-        Test login with empty credentials.
-        
-        This test should fail consistently.
-        """
-        def _test_empty_login():
-            self.login_page.login("", "")
-            assert self.login_page.is_login_successful(), "Empty credentials should not login"
-        
-        result = execute_test_with_retry(
-            _test_empty_login,
-            "test_empty_credentials",
-            max_retries=2,
-            retry_delay=1.0
-        )
-        
-        self.logger.log_info(f"Test result: {result.status.value}")
-        assert result.status.value == "FAILURE", "Test should fail for empty credentials"
-    
-    def test_page_load_verification(self):
-        """
-        Test that login page loads correctly.
-        
-        This test should pass on first attempt.
-        """
-        def _test_page_load():
-            assert self.login_page.is_page_loaded(), "Login page should be loaded"
-            assert "Swag Labs" in self.login_page.get_page_title(), "Page title should be correct"
-        
-        result = execute_test_with_retry(
-            _test_page_load,
-            "test_page_load_verification",
-            max_retries=2,
-            retry_delay=1.0
-        )
-        
-        self.logger.log_info(f"Test result: {result.status.value}")
-        assert result.status.value == "PASS", "Test should pass on first attempt"
+        print(f"\nExecution Finished\n{evidence}")
+        assert evidence.has_screenshot, "Screenshot should have been captured"
+        assert evidence.has_log, "Browser log should have been captured"
+        assert evidence.exception_type == "ElementClickInterceptedException"

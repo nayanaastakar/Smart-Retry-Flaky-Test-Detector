@@ -68,7 +68,7 @@ class TestRunner:
             self.logger.log_info("=" * 80)
             
             # Build pytest command
-            pytest_args = ["pytest", test_path]
+            pytest_args = [sys.executable, "-m", "pytest", test_path]
             
             if verbose:
                 pytest_args.append("-v")

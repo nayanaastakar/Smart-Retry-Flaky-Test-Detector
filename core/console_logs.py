@@ -79,6 +79,45 @@ class ConsoleLogManager:
             self.logger.log_exception(e, f"Failed to capture console logs for test: {test_name}")
             # Return empty path if capture fails
             return Path()
+
+    def capture_on_failure(
+        self,
+        driver: webdriver.Chrome,
+        test_name: str
+    ) -> Path:
+        """
+        Automatically capture console logs on test failure.
+        
+        This method is designed to be called automatically when a test fails,
+        capturing the current browser console logs for debugging purposes.
+        
+        Args:
+            driver: Selenium WebDriver instance
+            test_name: Name of the test case that failed
+            
+        Returns:
+            Path: Path to the saved console log file
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{test_name}_console_{timestamp}.txt"
+            log_path = self.config.LOG_PATH / filename
+            
+            # Ensure log directory exists
+            self.config.LOG_PATH.mkdir(parents=True, exist_ok=True)
+            
+            # Retrieve browser logs
+            logs = driver.get_log('browser')
+            
+            # Save logs to file
+            self._save_logs_to_file(logs, log_path)
+            
+            self.logger.log_info(f"Captured console logs on failure for test: {test_name}")
+            return log_path
+            
+        except Exception as e:
+            self.logger.log_exception(e, f"Failed to capture console logs on failure for test: {test_name}")
+            return Path()
     
     def _filter_logs(self, logs: List[Dict]) -> List[Dict]:
         """
