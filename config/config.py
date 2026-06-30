@@ -30,10 +30,10 @@ class Config:
     BROWSER_WINDOW_SIZE: str = "1920,1080"
 
     # Timeout Configurations (in seconds)
-    IMPLICIT_WAIT: int = 10
-    EXPLICIT_WAIT: int = 20
-    PAGE_LOAD_TIMEOUT: int = 30
-    SCRIPT_TIMEOUT: int = 30
+    IMPLICIT_WAIT: int = 5
+    EXPLICIT_WAIT: int = 5
+    PAGE_LOAD_TIMEOUT: int = 15
+    SCRIPT_TIMEOUT: int = 15
 
     # Base URL for SauceDemo
     SAUCE_DEMO_URL: str = "https://www.saucedemo.com"
@@ -44,7 +44,7 @@ class Config:
 
     # Retry Engine Configuration - Module 2
     MAX_RETRIES: int = 2
-    RETRY_DELAY: float = 2.0
+    RETRY_DELAY: float = 1.0
     MAX_RETRY_COUNT: int = 2
 
     # Flaky Detection Configuration - Module 3
@@ -67,7 +67,7 @@ class Config:
     OLLAMA_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1"
     OPENAI_API_KEY: str = ""
-    AI_TIMEOUT: int = 60
+    AI_TIMEOUT: int = 15
 
     # ─── Module 7: Analytics & Execution History ─────────────────────────────
     ENABLE_HISTORY: bool = True

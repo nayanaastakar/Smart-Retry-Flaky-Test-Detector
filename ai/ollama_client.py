@@ -29,15 +29,20 @@ class OllamaClient:
         self.base_url = self.config.OLLAMA_URL
         self.model = self.config.OLLAMA_MODEL
         self.logger = logging.getLogger(self.__class__.__name__)
+        self._is_running_cache = None  # Cache connectivity check
 
     def is_running(self) -> bool:
-        """Check if the Ollama server is running."""
+        """Check if the Ollama server is running (cached after first check)."""
+        if self._is_running_cache is not None:
+            return self._is_running_cache
         try:
             req = urllib.request.Request(self.base_url)
-            with urllib.request.urlopen(req, timeout=5) as response:
-                return response.status == 200
+            with urllib.request.urlopen(req, timeout=2) as response:
+                self._is_running_cache = response.status == 200
+                return self._is_running_cache
         except Exception as e:
             self.logger.warning(f"Ollama server is not running: {str(e)}")
+            self._is_running_cache = False
             return False
 
     def connect(self) -> bool:

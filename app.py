@@ -106,6 +106,11 @@ def run_tests_page():
 def analytics():
     return render_template("dashboard.html")
 
+@app.route("/dashboard")
+def dashboard():
+    """Redirect /dashboard to home page for backward compatibility."""
+    return redirect(url_for("index"))
+
 @app.route("/screenshots-gallery")
 def screenshots_gallery():
     """Show a gallery of all screenshots from the most recent test run."""

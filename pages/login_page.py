@@ -117,12 +117,15 @@ class LoginPage:
     def is_login_successful(self) -> bool:
         """
         Verify if login was successful by checking for inventory container.
+        Uses a short timeout to avoid long waits on failed logins.
         
         Returns:
             bool: True if login successful, False otherwise
         """
         try:
-            self.wait.until(EC.presence_of_element_located(self.INVENTORY_CONTAINER))
+            # Use a short wait (3s) — successful logins redirect almost instantly
+            quick_wait = WebDriverWait(self.driver, 3)
+            quick_wait.until(EC.presence_of_element_located(self.INVENTORY_CONTAINER))
             return True
         except:
             return False
