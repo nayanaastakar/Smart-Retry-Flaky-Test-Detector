@@ -16,6 +16,8 @@ from config import settings
 @pytest.fixture(autouse=True)
 def setup_database():
     init_db()
+    execute("DELETE FROM executions WHERE run_id = 'report_batch'")
+    execute("DELETE FROM reports WHERE run_id = 'report_batch'")
 
 
 def test_evidence_collector_graceful_degrade_without_driver():

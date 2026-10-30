@@ -6,12 +6,13 @@ Unit and integration tests for the Smart Retry Engine.
 
 import pytest
 from core.retry_engine import SmartRetryEngine, ExecutionStatus, retryable
-from database.db_manager import init_db, fetch_all, fetch_one
+from database.db_manager import init_db, fetch_all, fetch_one, execute
 
 
 @pytest.fixture(autouse=True)
 def setup_database():
     init_db()
+    execute("DELETE FROM executions WHERE module IN ('test_unit', 'decorator_test')")
 
 
 def test_clean_pass_on_first_attempt():

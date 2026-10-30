@@ -12,6 +12,8 @@ from database.db_manager import init_db, execute
 @pytest.fixture(autouse=True)
 def setup_database():
     init_db()
+    execute("DELETE FROM executions WHERE module = 'test_mod'")
+    execute("DELETE FROM flaky_history WHERE module = 'test_mod'")
 
 
 def test_stable_classification_all_passes():
