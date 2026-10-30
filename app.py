@@ -99,6 +99,7 @@ app = create_app()
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--init-db", action="store_true", help="Initialize schema and seed default data")
+    parser.add_argument("--no-reload", action="store_true", help="Disable the watchdog auto-reloader")
     args = parser.parse_args()
 
     if args.init_db:
@@ -106,4 +107,5 @@ if __name__ == "__main__":
 
         run_all()
 
-    app.run(host=settings.HOST, port=settings.PORT, debug=settings.DEBUG)
+    use_reloader = settings.DEBUG and not args.no_reload
+    app.run(host=settings.HOST, port=settings.PORT, debug=settings.DEBUG, use_reloader=use_reloader)
