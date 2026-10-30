@@ -1,49 +1,105 @@
 {% extends "base.html" %}
-{% block title %}Execution #{{ execution.id }}{% endblock %}
-{% block page_title %}Execution #{{ execution.id }}{% endblock %}
+{% block title %}{{ execution.test_name }}{% endblock %}
 {% block content %}
-<a href="{{ url_for('history.index') }}" class="btn btn-outline-secondary mb-3">← Back</a>
-<div class="row g-3">
-  <div class="col-md-8">
-    <div class="card mb-3"><div class="card-header">Details</div><div class="card-body">
-      <p><b>Test:</b> {{ execution.test_name }}</p>
-      <p><b>Status:</b> {% if execution.status=='pass'%}<span class="badge badge-pass">PASS</span>{% elif execution.status=='fail'%}<span class="badge badge-fail">FAIL</span>{% elif execution.status=='flaky'%}<span class="badge badge-flaky">FLAKY</span>{% else %}<span class="badge bg-secondary">{{execution.status}}</span>{% endif %}</p>
-      <p><b>Retries:</b> {{ execution.retry_count or 0 }}</p>
-      <p class="mb-0"><b>Browser:</b> {{ execution.browser }}</p>
-      {% if execution.error_message %}<div class="alert alert-danger mt-2"><b>Error:</b> {{ execution.error_message }}</div>{% endif %}
-    </div></div>
-    {% if execution.log_output %}
-    <div class="card mb-3"><div class="card-header">Logs</div><div class="card-body p-0">
-      <pre class="text-success small mb-0" style="max-height:300px;overflow-y:auto;background:#0a0a0f;padding:1rem;border-radius:0 0 10px 10px">{{ execution.log_output }}</pre>
-    </div></div>
-    {% endif %}
-    {% if retries %}
-    <div class="card mb-3"><div class="card-header">Retry Attempts</div><div class="card-body p-0">
-      <table class="table table-dark mb-0">
-        <thead><tr><th>Attempt</th><th>Status</th><th>Error</th></tr></thead>
-        <tbody>{% for r in retries %}<tr><td>{{ r.attempt_number }}</td><td>{{ r.status }}</td><td class="text-muted small">{{ r.error_message or '-' }}</td></tr>{% endfor %}</tbody>
-      </table>
-    </div></div>
-    {% endif %}
-    {% if ai %}
-    <div class="card"><div class="card-header">AI Analysis</div><div class="card-body">
-      <p><b>Root Cause:</b> {{ ai.root_cause }}</p>
-      <p><b>Suggested Fix:</b> {{ ai.suggested_fix }}</p>
-      <p class="mb-0"><b>Severity:</b> <span class="badge bg-warning">{{ ai.severity }}</span></p>
-    </div></div>
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ execution.test_name }}</h1>
+    <p class="page-subtitle mono">Run {{ execution.run_id }} &middot; {{ execution.module }} &middot; {{ execution.started_at }}</p>
+  </div>
+  {% if execution.status == 'PASS' %}<span class="badge badge-pass" style="font-size:13px; padding:6px 14px;">Pass</span>
+  {% elif execution.status == 'FAIL' %}<span class="badge badge-fail" style="font-size:13px; padding:6px 14px;">Fail</span>
+  {% elif execution.status == 'FLAKY' %}<span class="badge badge-flaky" style="font-size:13px; padding:6px 14px;">Flaky</span>
+  {% else %}<span class="badge badge-running" style="font-size:13px; padding:6px 14px;">{{ execution.status }}</span>{% endif %}
+</div>
+
+<div class="grid grid-kpi" style="margin-bottom:18px;">
+  <div class="card"><div class="kpi-label">Attempts</div><div class="kpi-value">{{ execution.attempt_count }} / {{ execution.max_retries + 1 }}</div></div>
+  <div class="card"><div class="kpi-label">Duration</div><div class="kpi-value">{{ (execution.duration_ms / 1000) | round(2) }}s</div></div>
+  <div class="card"><div class="kpi-label">Browser</div><div class="kpi-value" style="font-size:16px;">{{ execution.browser or '—' }}</div>{% if execution.browser_version %}<div class="mono" style="font-size:11px; color:var(--text-tertiary);">{{ execution.browser_version }}</div>{% endif %}</div>
+  <div class="card"><div class="kpi-label">OS</div><div class="kpi-value" style="font-size:16px;">{{ execution.os_name or '—' }}</div></div>
+</div>
+
+<div class="grid grid-2col">
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-header"><h3 class="card-title">Retry Timeline</h3></div>
+    {% if attempts %}
+      {% for a in attempts %}
+      <div style="display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--border-subtle);">
+        <div style="width:26px; height:26px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+          background:{{ 'var(--status-pass-soft)' if a.status=='PASS' else 'var(--status-fail-soft)' }};
+          color:{{ 'var(--status-pass)' if a.status=='PASS' else 'var(--status-fail)' }}; font-size:11px; font-weight:700; flex-shrink:0;">
+          {{ a.attempt_number }}
+        </div>
+        <div>
+          <div style="font-size:13px; font-weight:600;">Attempt {{ a.attempt_number }} &middot;
+            {% if a.status == 'PASS' %}<span style="color:var(--status-pass);">Passed</span>{% else %}<span style="color:var(--status-fail);">Failed</span>{% endif %}
+          </div>
+          <div style="font-size:11.5px; color:var(--text-tertiary);" class="mono">{{ a.duration_ms }}ms</div>
+          {% if a.error_message %}<div style="font-size:12px; color:var(--status-fail); margin-top:4px;">{{ a.error_message }}</div>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state"><i class="fa-solid fa-check"></i><p>Passed on first attempt, no retries needed.</p></div>
     {% endif %}
   </div>
-  <div class="col-md-4">
-    <div class="card mt-0"><div class="card-header">Actions</div><div class="card-body">
-      {% if execution.status in ['fail','flaky'] %}
-      <form method="POST" action="{{ url_for('ai_analysis.analyze', exec_id=execution.id) }}">
-        <button class="btn btn-outline-info w-100 mb-2"><i class="bi bi-robot"></i> Analyze with AI</button>
-      </form>
-      {% endif %}
-      <form method="POST" action="{{ url_for('history.delete', exec_id=execution.id) }}" onsubmit="return confirm('Delete?')">
-        <button class="btn btn-outline-danger w-100">Delete</button>
-      </form>
-    </div></div>
+
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-header"><h3 class="card-title">Evidence</h3></div>
+    {% if execution.screenshot_path %}
+      <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:8px;">Screenshot</p>
+      <a href="{{ url_for('history.screenshot', execution_id=execution.id) }}" target="_blank">
+        <img src="{{ url_for('history.screenshot', execution_id=execution.id) }}" alt="Failure screenshot"
+          style="width:100%; border:1px solid var(--border-subtle); border-radius:10px; margin-bottom:8px;">
+      </a>
+      <div class="mono" style="font-size:11px; color:var(--text-tertiary); margin-bottom:16px;">{{ execution.screenshot_path }}</div>
+    {% endif %}
+    {% if execution.stack_trace %}
+      <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:8px;">Stack Trace</p>
+      <pre style="background:var(--bg-canvas); border:1px solid var(--border-subtle); border-radius:10px; padding:14px; font-family:var(--font-mono); font-size:11.5px; color:var(--status-fail); overflow-x:auto; max-height:260px;">{{ execution.stack_trace }}</pre>
+    {% else %}
+      <div class="empty-state"><i class="fa-solid fa-file-shield"></i><p>No stack trace captured — test passed cleanly.</p></div>
+    {% endif %}
   </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title"><i class="fa-solid fa-brain" style="color:var(--accent-hover);"></i> AI Failure Analysis</h3>
+    {% if execution.status in ('FAIL', 'FLAKY') %}
+    <form method="POST" action="{{ url_for('history.analyze', execution_id=execution.id) }}">
+      <button type="submit" class="btn btn-primary" style="padding:7px 14px; font-size:12.5px;">
+        <i class="fa-solid fa-wand-magic-sparkles"></i> {{ 'Re-run' if ai_analysis else 'Run' }} Analysis
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  {% if ai_analysis %}
+    {% if ai_analysis.model_name == 'heuristic-fallback' %}
+    <div style="background:var(--status-flaky-soft); color:var(--status-flaky); padding:8px 12px; border-radius:8px; font-size:12px; margin-bottom:14px;">
+      <i class="fa-solid fa-triangle-exclamation"></i> Ollama was unreachable — this is a rule-based heuristic fallback, not a live model response.
+    </div>
+    {% endif %}
+    <div class="grid grid-2col">
+      <div>
+        <p class="form-label">Root Cause</p>
+        <p style="font-size:13.5px; margin-bottom:14px;">{{ ai_analysis.root_cause }}</p>
+        <p class="form-label">Recommended Fix</p>
+        <p style="font-size:13.5px; margin-bottom:14px;">{{ ai_analysis.recommended_fix }}</p>
+        <p class="form-label">Prevention</p>
+        <p style="font-size:13.5px;">{{ ai_analysis.prevention }}</p>
+      </div>
+      <div>
+        <p class="form-label">Severity</p>
+        <p style="font-size:13.5px; margin-bottom:14px;">{{ ai_analysis.severity }}</p>
+        <p class="form-label">Confidence Score</p>
+        <div class="progress-track" style="margin-bottom:14px;"><div class="progress-fill" style="width:{{ (ai_analysis.confidence_score or 0) * 100 }}%;"></div></div>
+        <p class="form-label">Suggested Selenium Improvement</p>
+        <pre style="background:var(--bg-canvas); border:1px solid var(--border-subtle); border-radius:10px; padding:12px; font-size:11.5px; overflow-x:auto;">{{ ai_analysis.suggested_code }}</pre>
+      </div>
+    </div>
+  {% else %}
+    <div class="empty-state"><i class="fa-solid fa-robot"></i><p>No AI analysis generated for this execution yet.</p></div>
+  {% endif %}
 </div>
 {% endblock %}

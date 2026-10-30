@@ -1,109 +1,231 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
-{% block page_title %}Dashboard{% endblock %}
+
 {% block content %}
-<div class="row g-3 mb-4">
-  <div class="col-6 col-lg-2">
-    <div class="stat-card position-relative overflow-hidden">
-      <i class="bi bi-play-circle position-absolute" style="font-size: 5rem; right: -10px; top: -15px; opacity: 0.05;"></i>
-      <div class="stat-val" style="color: #38bdf8;">{{ stats.total }}</div>
-      <div class="text-muted small text-uppercase" style="letter-spacing: 0.05em; font-size: 0.75rem; font-weight: 600;">Total Runs</div>
-    </div>
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Execution Overview</h1>
+    <p class="page-subtitle">Real-time view of test stability across every suite &middot; auto-refreshes every 30s</p>
   </div>
-  <div class="col-6 col-lg-2">
-    <div class="stat-card position-relative overflow-hidden">
-      <i class="bi bi-check-circle position-absolute" style="font-size: 5rem; right: -10px; top: -15px; opacity: 0.05;"></i>
-      <div class="stat-val text-success" style="color: #34d399 !important;">{{ stats.passed }}</div>
-      <div class="text-muted small text-uppercase" style="letter-spacing: 0.05em; font-size: 0.75rem; font-weight: 600;">Passed</div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-2">
-    <div class="stat-card position-relative overflow-hidden">
-      <i class="bi bi-x-circle position-absolute" style="font-size: 5rem; right: -10px; top: -15px; opacity: 0.05;"></i>
-      <div class="stat-val text-danger" style="color: #f87171 !important;">{{ stats.failed }}</div>
-      <div class="text-muted small text-uppercase" style="letter-spacing: 0.05em; font-size: 0.75rem; font-weight: 600;">Failed</div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-2">
-    <div class="stat-card position-relative overflow-hidden">
-      <i class="bi bi-shuffle position-absolute" style="font-size: 5rem; right: -10px; top: -15px; opacity: 0.05;"></i>
-      <div class="stat-val text-warning" style="color: #fbbf24 !important;">{{ stats.flaky }}</div>
-      <div class="text-muted small text-uppercase" style="letter-spacing: 0.05em; font-size: 0.75rem; font-weight: 600;">Flaky</div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-2">
-    <div class="stat-card position-relative overflow-hidden">
-      <i class="bi bi-folder position-absolute" style="font-size: 5rem; right: -10px; top: -15px; opacity: 0.05;"></i>
-      <div class="stat-val" style="color: #a78bfa;">{{ stats.projects }}</div>
-      <div class="text-muted small text-uppercase" style="letter-spacing: 0.05em; font-size: 0.75rem; font-weight: 600;">Projects</div>
-    </div>
-  </div>
-  <div class="col-6 col-lg-2">
-    <div class="stat-card position-relative overflow-hidden">
-      <i class="bi bi-list-check position-absolute" style="font-size: 5rem; right: -10px; top: -15px; opacity: 0.05;"></i>
-      <div class="stat-val" style="color: #f472b6;">{{ stats.test_cases }}</div>
-      <div class="text-muted small text-uppercase" style="letter-spacing: 0.05em; font-size: 0.75rem; font-weight: 600;">Test Cases</div>
-    </div>
+  <div style="display:flex; gap:10px;">
+    <a href="{{ url_for('history.export_csv') }}" class="btn btn-ghost"><i class="fa-solid fa-download"></i> Export CSV</a>
+    <a href="#" class="btn btn-primary" onclick="openRunModal(); return false;"><i class="fa-solid fa-play"></i> Run Tests</a>
   </div>
 </div>
 
-<div class="card mb-4">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span>Overall Health</span>
-    {% set pass_rate = (stats.passed / stats.total * 100)|round(1) if stats.total > 0 else 0 %}
-    <span class="text-success" style="font-weight: 600;">{{ pass_rate }}% Pass Rate</span>
+<!-- Quick Run Modal: paste any URL, run the generic smoke-check battery against it -->
+<div id="runModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(4,7,15,0.6); backdrop-filter:blur(3px); align-items:center; justify-content:center; z-index:1000;">
+  <div class="card fade-in" style="width:480px; max-width:92vw; box-shadow:var(--shadow-pop);">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-play" style="color:var(--accent-hover);"></i> Run Tests Against a URL</h3>
+      <span onclick="closeRunModal()" style="cursor:pointer; color:var(--text-tertiary);"><i class="fa-solid fa-xmark"></i></span>
+    </div>
+    <form method="POST" action="{{ url_for('run.execute') }}" id="runForm">
+      <div class="form-group">
+        <label class="form-label">Website URL</label>
+        <input type="text" name="url" class="form-control" placeholder="https://example.com" required autofocus>
+        <p class="form-hint">Works against any website — no site-specific setup needed.</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Browser</label>
+        <select name="browser" class="form-control">
+          <option value="chrome">Chrome</option>
+          <option value="firefox">Firefox</option>
+          <option value="edge">Edge</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Number of runs</label>
+        <input type="number" name="iterations" class="form-control" value="5" min="1" max="20">
+        <p class="form-hint">Runs the check battery this many times in a row so flakiness (results that flip between runs) can actually be measured, not guessed from a single pass/fail.</p>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="closeRunModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="runSubmitBtn">
+          <i class="fa-solid fa-bolt"></i> Run Tests
+        </button>
+      </div>
+    </form>
   </div>
-  <div class="card-body">
-    {% set fail_rate = (stats.failed / stats.total * 100)|round(1) if stats.total > 0 else 0 %}
-    {% set flaky_rate = (stats.flaky / stats.total * 100)|round(1) if stats.total > 0 else 0 %}
-    <div class="progress mb-3" style="height: 10px; background-color: #2d3748;">
-      <div class="progress-bar bg-success" style="width: {{ pass_rate }}%"></div>
-      <div class="progress-bar bg-warning" style="width: {{ flaky_rate }}%"></div>
-      <div class="progress-bar bg-danger" style="width: {{ fail_rate }}%"></div>
-    </div>
-    <div class="d-flex gap-4 small">
-      <span style="color: #94a3b8;"><span style="color: #34d399; font-size: 0.5rem; vertical-align: middle; margin-right: 4px;">●</span>Pass {{ pass_rate }}%</span>
-      <span style="color: #94a3b8;"><span style="color: #fbbf24; font-size: 0.5rem; vertical-align: middle; margin-right: 4px;">●</span>Flaky {{ flaky_rate }}%</span>
-      <span style="color: #94a3b8;"><span style="color: #f87171; font-size: 0.5rem; vertical-align: middle; margin-right: 4px;">●</span>Fail {{ fail_rate }}%</span>
-    </div>
+</div>
+<script>
+  function openRunModal() { document.getElementById('runModalOverlay').style.display = 'flex'; }
+  function closeRunModal() { document.getElementById('runModalOverlay').style.display = 'none'; }
+  document.getElementById('runForm').addEventListener('submit', function () {
+    var btn = document.getElementById('runSubmitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Starting run…';
+  });
+</script>
+
+<!-- KPI Tiles -->
+<div class="grid grid-kpi" style="margin-bottom:18px;">
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--accent-soft); color:var(--accent-hover);"><i class="fa-solid fa-layer-group"></i></div>
+    <div class="kpi-value" id="kpiTotal">{{ metrics.total_executions }}</div>
+    <div class="kpi-label">Total Executions</div>
+    <div class="kpi-delta up"><i class="fa-solid fa-arrow-trend-up"></i> {{ metrics.today_executions }} today</div>
+  </div>
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--status-pass-soft); color:var(--status-pass);"><i class="fa-solid fa-circle-check"></i></div>
+    <div class="kpi-value" id="kpiPassed">{{ metrics.passed }}</div>
+    <div class="kpi-label">Passed Tests</div>
+    <div class="kpi-delta up"><i class="fa-solid fa-arrow-trend-up"></i> {{ metrics.pass_rate }}% pass rate</div>
+  </div>
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--status-fail-soft); color:var(--status-fail);"><i class="fa-solid fa-circle-xmark"></i></div>
+    <div class="kpi-value" id="kpiFailed">{{ metrics.failed }}</div>
+    <div class="kpi-label">Failed Tests</div>
+    <div class="kpi-delta down"><i class="fa-solid fa-arrow-trend-down"></i> needs attention</div>
+  </div>
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--status-flaky-soft); color:var(--status-flaky);"><i class="fa-solid fa-wave-square"></i></div>
+    <div class="kpi-value" id="kpiFlaky">{{ metrics.flaky }}</div>
+    <div class="kpi-label">Flaky Tests</div>
+    <div class="kpi-delta" style="color:var(--status-flaky);"><i class="fa-solid fa-triangle-exclamation"></i> monitor closely</div>
   </div>
 </div>
 
-<div class="card">
-  <div class="card-header d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-clock-history me-2"></i>Recent Executions</span>
-    <a href="{{ url_for('projects.create') }}" class="btn btn-sm btn-purple"><i class="bi bi-plus"></i> New Project</a>
+<div class="grid grid-kpi" style="margin-bottom:22px;">
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--accent-soft); color:var(--accent-hover);"><i class="fa-solid fa-rotate-right"></i></div>
+    <div class="kpi-value">{{ metrics.retry_success_rate }}%</div>
+    <div class="kpi-label">Retry Success Rate</div>
   </div>
-  <div class="card-body p-0">
-    {% if recent %}
-    <div class="table-responsive">
-      <table class="table table-dark table-hover mb-0">
-        <thead><tr><th>Test</th><th>Status</th><th>Retries</th><th>Duration</th><th>Time</th><th></th></tr></thead>
-        <tbody>
-        {% for e in recent %}
-        <tr>
-          <td>{{ e.test_name }}</td>
-          <td>
-            {% if e.status == 'pass' %}<span class="badge badge-pass">PASS</span>
-            {% elif e.status == 'fail' %}<span class="badge badge-fail">FAIL</span>
-            {% elif e.status == 'flaky' %}<span class="badge badge-flaky">FLAKY</span>
-            {% else %}<span class="badge bg-secondary">{{ e.status|upper }}</span>{% endif %}
-          </td>
-          <td>{{ e.retry_count or 0 }}</td>
-          <td>{{ "%.1f"|format(e.duration_seconds or 0) }}s</td>
-          <td class="text-muted small">{{ e.started_at[:16] if e.started_at else '-' }}</td>
-          <td><a href="{{ url_for('history.detail', exec_id=e.id) }}" class="btn btn-sm btn-outline-secondary">View</a></td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--status-running-soft); color:var(--status-running);"><i class="fa-solid fa-stopwatch"></i></div>
+    <div class="kpi-value">{{ metrics.avg_duration_s }}s</div>
+    <div class="kpi-label">Avg Execution Time</div>
+  </div>
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--accent-soft); color:var(--accent-hover);"><i class="fa-solid fa-brain"></i></div>
+    <div class="kpi-value">{{ metrics.ai_analysis_count }}</div>
+    <div class="kpi-label">AI Analyses Run</div>
+  </div>
+  <div class="card kpi-tile">
+    <div class="kpi-icon" style="background:var(--bg-surface-hover); color:var(--text-secondary);"><i class="fa-solid fa-flag-checkered"></i></div>
+    <div class="kpi-value" style="font-size:15px;">
+      {% if metrics.last_execution %}{{ metrics.last_execution.test_name[:22] }}{% else %}—{% endif %}
     </div>
+    <div class="kpi-label">Last Execution</div>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="grid grid-2col" style="margin-bottom:18px;">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Execution Trend</h3>
+        <span class="card-title-sub">last 14 days · pass / fail / flaky</span>
+      </div>
+    </div>
+    <canvas id="trendChart" height="90"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Status Distribution</h3>
+        <span class="card-title-sub">all-time</span>
+      </div>
+    </div>
+    <canvas id="statusPie" height="90"></canvas>
+  </div>
+</div>
+
+<div class="grid grid-2col" style="margin-bottom:18px;">
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Retry Trend</h3>
+        <span class="card-title-sub">avg attempts per day</span>
+      </div>
+    </div>
+    <canvas id="retryChart" height="90"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-header">
+      <div>
+        <h3 class="card-title">Top Flaky Tests</h3>
+        <span class="card-title-sub">by flaky score</span>
+      </div>
+    </div>
+    {% if top_flaky %}
+      {% for t in top_flaky %}
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border-subtle);">
+        <div>
+          <div style="font-size:13px; font-weight:600;">{{ t.test_name }}</div>
+          <div style="font-size:11.5px; color:var(--text-tertiary);">{{ t.module }} &middot; {{ t.total_runs }} runs</div>
+        </div>
+        <span class="badge badge-flaky">{{ t.flaky_score }}%</span>
+      </div>
+      {% endfor %}
     {% else %}
-    <div class="text-center py-5 text-muted">
-      <i class="bi bi-play-circle" style="font-size:3rem"></i>
-      <p class="mt-2">No executions yet. <a href="{{ url_for('projects.create') }}">Create a project</a> and run tests.</p>
-    </div>
+      <div class="empty-state"><i class="fa-solid fa-check-double"></i><p>No flaky tests detected yet.</p></div>
     {% endif %}
   </div>
 </div>
+
+<!-- Tables -->
+<div class="grid grid-2col">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Recent Executions</h3>
+      <a href="{{ url_for('history.index') }}" class="btn btn-ghost" style="padding:6px 12px; font-size:12px;">View all</a>
+    </div>
+    {% if recent_executions %}
+    <table class="data-table">
+      <thead><tr><th>Test</th><th>Module</th><th>Status</th><th>Attempts</th><th>Duration</th></tr></thead>
+      <tbody>
+        {% for e in recent_executions %}
+        <tr onclick="window.location='{{ url_for('history.detail', execution_id=e.id) }}'" style="cursor:pointer;">
+          <td>{{ e.test_name }}</td>
+          <td class="mono" style="color:var(--text-tertiary); font-size:11.5px;">{{ e.module }}</td>
+          <td>
+            {% if e.status == 'PASS' %}<span class="badge badge-pass">Pass</span>
+            {% elif e.status == 'FAIL' %}<span class="badge badge-fail">Fail</span>
+            {% elif e.status == 'FLAKY' %}<span class="badge badge-flaky">Flaky</span>
+            {% else %}<span class="badge badge-running">{{ e.status }}</span>{% endif %}
+          </td>
+          <td class="mono">{{ e.attempt_count }}</td>
+          <td class="mono">{{ (e.duration_ms / 1000) | round(2) }}s</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No executions recorded yet. Run your first test to populate the dashboard.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">Top Failed Tests</h3></div>
+    {% if top_failed %}
+      {% for f in top_failed %}
+      <div style="margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px;">
+          <span style="font-weight:600;">{{ f.test_name }}</span>
+          <span class="mono" style="color:var(--status-fail);">{{ f.fail_count }}</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" style="width:{{ (f.fail_count / (top_failed[0].fail_count or 1) * 100) }}%; background:var(--status-fail);"></div></div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state"><i class="fa-solid fa-shield-check"></i><p>No failures recorded. Great job!</p></div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard_charts.js') }}"></script>
+<script>
+  window.DASHBOARD_DATA = {
+    trend: {{ execution_trend | tojson }},
+    statusDist: {{ status_distribution | tojson }},
+    retryTrend: {{ retry_trend | tojson }}
+  };
+  document.addEventListener("DOMContentLoaded", () => initDashboardCharts(window.DASHBOARD_DATA));
+</script>
 {% endblock %}

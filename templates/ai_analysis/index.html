@@ -1,30 +1,63 @@
-{% extends "base.html" %}{% block title %}AI Analysis{% endblock %}{% block page_title %}AI Analysis{% endblock %}
+{% extends "base.html" %}
+{% block title %}AI Analysis{% endblock %}
 {% block content %}
-{% if pending %}
-<div class="card mb-3"><div class="card-header text-warning"><i class="bi bi-exclamation-triangle"></i> Pending Analysis</div><div class="card-body p-0">
-<table class="table table-dark mb-0">
-<thead><tr><th>Test</th><th>Status</th><th>Action</th></tr></thead>
-<tbody>{% for e in pending %}<tr>
-<td>{{ e.test_name }}</td>
-<td><span class="badge badge-fail">{{ e.status|upper }}</span></td>
-<td><form method="POST" action="{{ url_for('ai_analysis.analyze', exec_id=e.id) }}">
-<button class="btn btn-sm btn-outline-info"><i class="bi bi-robot"></i> Analyze</button></form></td>
-</tr>{% endfor %}</tbody></table>
-</div></div>
+<div class="page-header">
+  <div>
+    <h1 class="page-title">AI Failure Analysis</h1>
+    <p class="page-subtitle">{{ analyses|length }} analysis record(s) &middot; {{ pending_count }} FAIL/FLAKY execution(s) not yet analyzed</p>
+  </div>
+  <form method="POST" action="{{ url_for('ai_analysis.bulk_run') }}">
+    <button type="submit" class="btn btn-primary" {{ 'disabled' if pending_count == 0 }}>
+      <i class="fa-solid fa-wand-magic-sparkles"></i> Analyze Next {{ [pending_count, max_bulk_run] | min }}
+    </button>
+  </form>
+</div>
+
+<div class="grid grid-kpi" style="margin-bottom:18px;">
+  {% for sev, color in [('CRITICAL','var(--status-fail)'), ('HIGH','var(--status-flaky)'), ('MEDIUM','var(--accent-hover)'), ('LOW','var(--status-pass)')] %}
+  <a href="{{ url_for('ai_analysis.index', severity=sev) }}" class="card kpi-tile" style="text-decoration:none; {{ 'outline:2px solid ' ~ color ~ ';' if severity_filter == sev }}">
+    <div class="kpi-icon" style="background:{{ color }}22; color:{{ color }};"><i class="fa-solid fa-triangle-exclamation"></i></div>
+    <div class="kpi-value">{{ severity_counts.get(sev, 0) }}</div>
+    <div class="kpi-label">{{ sev|capitalize }} severity</div>
+  </a>
+  {% endfor %}
+</div>
+
+{% if severity_filter %}
+<div style="margin-bottom:14px;">
+  <a href="{{ url_for('ai_analysis.index') }}" class="btn btn-ghost" style="padding:6px 12px; font-size:12px;"><i class="fa-solid fa-xmark"></i> Clear filter: {{ severity_filter }}</a>
+</div>
 {% endif %}
 
-<div class="card"><div class="card-header">Analysis Results</div><div class="card-body p-0">
-{% if analyses %}
-<table class="table table-dark table-hover mb-0">
-<thead><tr><th>Test</th><th>Severity</th><th>Root Cause</th><th>Fix</th><th>Time</th></tr></thead>
-<tbody>{% for a in analyses %}<tr>
-<td>{{ a.test_name }}</td>
-<td><span class="badge {% if a.severity=='high' %}bg-danger{% elif a.severity=='medium' %}bg-warning{% else %}bg-info{% endif %}">{{ a.severity }}</span></td>
-<td class="small" style="max-width:250px">{{ a.root_cause[:100] if a.root_cause else '-' }}</td>
-<td class="small" style="max-width:200px">{{ a.suggested_fix[:80] if a.suggested_fix else '-' }}</td>
-<td class="text-muted small">{{ a.analyzed_at[:16] if a.analyzed_at else '-' }}</td>
-</tr>{% endfor %}</tbody></table>
-{% else %}
-<div class="text-center py-5 text-muted"><i class="bi bi-robot" style="font-size:3rem"></i><p class="mt-2">No analyses yet. Run some tests and analyze failures above.</p></div>
-{% endif %}
-</div></div>{% endblock %}
+<div class="card">
+  {% if analyses %}
+  <table class="data-table">
+    <thead><tr><th>Test</th><th>Module</th><th>Severity</th><th>Root Cause</th><th>Confidence</th><th>Model</th><th></th></tr></thead>
+    <tbody>
+      {% for a in analyses %}
+      <tr>
+        <td style="font-weight:600;">{{ a.test_name }}</td>
+        <td class="mono" style="font-size:11.5px; color:var(--text-tertiary);">{{ a.module }}</td>
+        <td>
+          {% set sev_color = {'CRITICAL':'var(--status-fail)','HIGH':'var(--status-flaky)','MEDIUM':'var(--accent-hover)','LOW':'var(--status-pass)'}.get(a.severity, 'var(--text-tertiary)') %}
+          <span class="badge" style="background:{{ sev_color }}22; color:{{ sev_color }};">{{ a.severity }}</span>
+        </td>
+        <td style="max-width:320px; font-size:12.5px;">{{ a.root_cause[:120] }}</td>
+        <td class="mono">{{ (a.confidence_score * 100) | round(0) }}%</td>
+        <td>
+          {% if a.model_name == 'heuristic-fallback' %}
+          <span class="badge" style="background:var(--status-flaky-soft); color:var(--status-flaky);">Heuristic</span>
+          {% else %}
+          <span class="badge" style="background:var(--accent-soft); color:var(--accent-hover);">{{ a.model_name }}</span>
+          {% endif %}
+        </td>
+        <td><a href="{{ url_for('history.detail', execution_id=a.execution_id) }}" class="btn btn-ghost" style="padding:5px 12px; font-size:12px;">View</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state"><i class="fa-solid fa-brain"></i><p>No AI analyses yet. Click "Analyze Next" to process FAIL/FLAKY executions, or run one from an execution's detail page.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

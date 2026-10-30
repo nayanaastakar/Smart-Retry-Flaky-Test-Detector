@@ -1,12 +1,127 @@
-{% extends "base.html" %}{% block title %}Test Cases{% endblock %}{% block page_title %}All Test Cases{% endblock %}
+{% extends "base.html" %}
+{% block title %}Test Cases{% endblock %}
 {% block content %}
-<div class="card"><div class="card-body p-0">
-{% if test_cases %}<table class="table table-dark table-hover mb-0">
-<thead><tr><th>Name</th><th>Project</th><th>Module</th><th>Actions</th></tr></thead>
-<tbody>{% for tc in test_cases %}<tr>
-<td>{{ tc.name }}</td><td class="text-muted">{{ tc.project_name or '-' }}</td>
-<td><span class="badge bg-secondary">{{ tc.module }}</span></td>
-<td>{% if tc.project_id %}<a href="{{ url_for('projects.edit_test', project_id=tc.project_id, tc_id=tc.id) }}" class="btn btn-sm btn-outline-info">Edit</a>{% endif %}</td>
-</tr>{% endfor %}</tbody></table>
-{% else %}<div class="text-center py-4 text-muted">No test cases yet. <a href="{{ url_for('projects.create') }}">Create a project</a> first.</div>{% endif %}
-</div></div>{% endblock %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Test Cases</h1>
+    <p class="page-subtitle">{{ test_cases|length }} test case(s) registered.</p>
+  </div>
+  <a href="#" class="btn btn-primary" onclick="openCreateModal(); return false;"><i class="fa-solid fa-plus"></i> New Test Case</a>
+</div>
+
+<div class="card" style="margin-bottom:18px;">
+  <form method="GET" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+    <div class="form-group" style="flex:1; min-width:200px; margin-bottom:0;">
+      <label class="form-label">Search</label>
+      <input type="text" name="q" class="form-control" placeholder="Test name..." value="{{ query }}">
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label">Module</label>
+      <select name="module" class="form-control">
+        <option value="">All</option>
+        {% for m in modules %}<option value="{{ m }}" {{ 'selected' if module_filter == m }}>{{ m }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:0;">
+      <label class="form-label">Group</label>
+      <select name="group" class="form-control">
+        <option value="">All</option>
+        {% for g in groups %}<option value="{{ g }}" {{ 'selected' if group_filter == g }}>{{ g }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn btn-ghost"><i class="fa-solid fa-filter"></i> Apply</button>
+  </form>
+</div>
+
+<div class="card">
+  {% if test_cases %}
+  <table class="data-table">
+    <thead><tr><th>Name</th><th>Module</th><th>Group</th><th>Tags</th><th>Website</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for tc in test_cases %}
+      <tr>
+        <td>
+          <div style="font-weight:600;">{{ tc.name }}</div>
+          {% if tc.description %}<div style="font-size:11.5px; color:var(--text-tertiary); margin-top:2px;">{{ tc.description[:70] }}</div>{% endif %}
+        </td>
+        <td class="mono" style="font-size:11.5px;">{{ tc.module }}</td>
+        <td class="mono" style="font-size:11.5px; color:var(--text-tertiary);">{{ tc.group_name }}</td>
+        <td>
+          {% for tag in tc.tags_list %}<span class="badge" style="background:var(--accent-soft); color:var(--accent-hover); margin-right:4px;">{{ tag }}</span>{% endfor %}
+        </td>
+        <td class="mono" style="font-size:11.5px;">{{ tc.website_profile or '—' }}</td>
+        <td>
+          {% if tc.enabled %}<span class="badge badge-pass">Enabled</span>{% else %}<span class="badge" style="background:var(--bg-surface-hover); color:var(--text-tertiary);">Disabled</span>{% endif %}
+        </td>
+        <td style="white-space:nowrap;">
+          <a href="{{ url_for('test_cases.edit', test_id=tc.id) }}" class="btn btn-ghost" style="padding:5px 9px;" title="Edit"><i class="fa-solid fa-pen"></i></a>
+          {% if tc.project_id %}
+          <form method="POST" action="{{ url_for('test_cases.run', test_id=tc.id) }}" style="display:inline;">
+            <button type="submit" class="btn btn-ghost" style="padding:5px 9px;" title="Run this test"><i class="fa-solid fa-play" style="color:var(--status-pass);"></i></button>
+          </form>
+          {% endif %}
+          <form method="POST" action="{{ url_for('test_cases.toggle', test_id=tc.id) }}" style="display:inline;">
+            <button type="submit" class="btn btn-ghost" style="padding:5px 9px;" title="Enable/Disable"><i class="fa-solid fa-power-off"></i></button>
+          </form>
+          <form method="POST" action="{{ url_for('test_cases.duplicate', test_id=tc.id) }}" style="display:inline;">
+            <button type="submit" class="btn btn-ghost" style="padding:5px 9px;" title="Duplicate"><i class="fa-solid fa-clone"></i></button>
+          </form>
+          <form method="POST" action="{{ url_for('test_cases.delete', test_id=tc.id) }}" style="display:inline;" onsubmit="return confirm('Delete this test case?');">
+            <button type="submit" class="btn btn-ghost" style="padding:5px 9px;" title="Delete"><i class="fa-solid fa-trash" style="color:var(--status-fail);"></i></button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state"><i class="fa-solid fa-vial"></i><p>No test cases yet. Create your first one to start organizing your suite.</p></div>
+  {% endif %}
+</div>
+
+<div id="createModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(4,7,15,0.6); backdrop-filter:blur(3px); align-items:center; justify-content:center; z-index:1000;">
+  <div class="card fade-in" style="width:480px; max-width:92vw;">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-vial"></i> New Test Case</h3>
+      <span onclick="closeCreateModal()" style="cursor:pointer; color:var(--text-tertiary);"><i class="fa-solid fa-xmark"></i></span>
+    </div>
+    <form method="POST" action="{{ url_for('test_cases.create') }}">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input type="text" name="name" class="form-control" placeholder="Login - Valid Credentials" required autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Module</label>
+        <input type="text" name="module" class="form-control" placeholder="login">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Website Profile</label>
+        <select name="website_profile" class="form-control">
+          <option value="">— none —</option>
+          {% for w in website_profiles %}<option value="{{ w.name }}">{{ w.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Group</label>
+        <input type="text" name="group_name" class="form-control" placeholder="default">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tags (comma-separated)</label>
+        <input type="text" name="tags" class="form-control" placeholder="smoke, regression">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="2"></textarea>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="closeCreateModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  function openCreateModal() { document.getElementById('createModalOverlay').style.display = 'flex'; }
+  function closeCreateModal() { document.getElementById('createModalOverlay').style.display = 'none'; }
+</script>
+{% endblock %}

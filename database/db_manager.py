@@ -1,149 +1,244 @@
 """
-db_manager.py - SQLite database manager with full schema.
+database/db_manager.py
+=======================
+Lightweight SQLite access layer. No heavy ORM is used on purpose -- this is a
+QA tooling project, not a transactional banking system, so raw SQL behind a
+small, well-typed helper keeps things transparent and dependency-light while
+still being safe (parameterized queries everywhere).
 """
+
 from __future__ import annotations
+
 import sqlite3
-import logging
+import threading
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Iterator
+
 from config import settings
 
-log = logging.getLogger(__name__)
+_local = threading.local()
 
+SCHEMA_SQL = """
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(settings.DATABASE_PATH), timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
-
-
-def execute(sql: str, params: tuple = ()) -> int:
-    """Execute INSERT/UPDATE/DELETE, return lastrowid or rowcount."""
-    with get_connection() as conn:
-        cur = conn.execute(sql, params)
-        conn.commit()
-        return cur.lastrowid or cur.rowcount
-
-
-def fetchone(sql: str, params: tuple = ()):
-    with get_connection() as conn:
-        cur = conn.execute(sql, params)
-        return cur.fetchone()
-
-
-def fetchall(sql: str, params: tuple = ()):
-    with get_connection() as conn:
-        cur = conn.execute(sql, params)
-        return cur.fetchall()
-
-
-SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    email TEXT,
-    role TEXT DEFAULT 'user',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_login DATETIME
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    username        TEXT UNIQUE NOT NULL,
+    email           TEXT UNIQUE NOT NULL,
+    password_hash   TEXT NOT NULL,
+    full_name       TEXT,
+    avatar_color    TEXT DEFAULT '#6366f1',
+    role            TEXT DEFAULT 'engineer',
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_login_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    url TEXT NOT NULL,
-    browser TEXT DEFAULT 'chrome',
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS test_cases (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    steps_json TEXT DEFAULT '[]',
-    enabled INTEGER DEFAULT 1,
-    module TEXT DEFAULT 'General',
-    group_name TEXT DEFAULT 'Default',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS executions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
-    test_case_id INTEGER REFERENCES test_cases(id) ON DELETE SET NULL,
-    test_name TEXT NOT NULL,
-    url TEXT,
-    status TEXT DEFAULT 'pending',
-    pass INTEGER DEFAULT 0,
-    fail INTEGER DEFAULT 0,
-    flaky INTEGER DEFAULT 0,
-    duration_seconds REAL DEFAULT 0,
-    retry_count INTEGER DEFAULT 0,
-    error_message TEXT,
-    screenshot_path TEXT,
-    log_output TEXT,
-    stack_trace TEXT,
-    browser TEXT DEFAULT 'chrome',
-    os_info TEXT,
-    started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    finished_at DATETIME
-);
-
-CREATE TABLE IF NOT EXISTS retries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    execution_id INTEGER REFERENCES executions(id) ON DELETE CASCADE,
-    attempt_number INTEGER NOT NULL,
-    status TEXT DEFAULT 'fail',
-    error_message TEXT,
-    screenshot_path TEXT,
-    duration_seconds REAL DEFAULT 0,
-    attempted_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    execution_id INTEGER REFERENCES executions(id) ON DELETE CASCADE,
-    report_type TEXT NOT NULL,
-    file_path TEXT,
-    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS ai_analysis (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    execution_id INTEGER REFERENCES executions(id) ON DELETE CASCADE,
-    root_cause TEXT,
-    suggested_fix TEXT,
-    severity TEXT DEFAULT 'medium',
-    confidence_score REAL DEFAULT 0.0,
-    recommendations TEXT,
-    model_used TEXT,
-    analyzed_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT UNIQUE NOT NULL,
+    url             TEXT NOT NULL,
+    browser         TEXT DEFAULT 'chrome',
+    tags            TEXT DEFAULT '[]',
+    notes           TEXT,
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS website_profiles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    url TEXT NOT NULL,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT UNIQUE NOT NULL,
+    base_url        TEXT NOT NULL,
+    description     TEXT,
+    icon            TEXT DEFAULT 'fa-globe',
+    config_json     TEXT NOT NULL,
+    is_builtin      INTEGER DEFAULT 0,
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS flaky_scores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    test_case_id INTEGER REFERENCES test_cases(id) ON DELETE CASCADE,
-    score REAL DEFAULT 0.0,
-    verdict TEXT DEFAULT 'stable',
-    last_calculated DATETIME DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS test_cases (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    module          TEXT NOT NULL,
+    website_profile TEXT,
+    project_id      INTEGER,
+    steps_json      TEXT DEFAULT '[]',
+    description     TEXT,
+    tags            TEXT DEFAULT '[]',
+    group_name      TEXT DEFAULT 'default',
+    enabled         INTEGER DEFAULT 1,
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS executions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id              TEXT NOT NULL,
+    test_name           TEXT NOT NULL,
+    module              TEXT,
+    website_profile     TEXT,
+    status              TEXT NOT NULL,           -- PASS | FAIL | FLAKY | RUNNING | SKIPPED
+    attempt_count       INTEGER DEFAULT 1,
+    max_retries         INTEGER DEFAULT 0,
+    retry_success       INTEGER DEFAULT 0,        -- 1 if it passed only after retrying
+    duration_ms         INTEGER DEFAULT 0,
+    browser             TEXT,
+    os_name             TEXT,
+    exception_type      TEXT,
+    exception_message   TEXT,
+    stack_trace         TEXT,
+    console_logs        TEXT,
+    screenshot_path     TEXT,
+    browser_version     TEXT,
+    started_at          TEXT DEFAULT CURRENT_TIMESTAMP,
+    finished_at         TEXT,
+    ai_analysis_id      INTEGER,
+    FOREIGN KEY (ai_analysis_id) REFERENCES ai_analyses(id)
+);
+
+CREATE TABLE IF NOT EXISTS retry_attempts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id    INTEGER NOT NULL,
+    attempt_number  INTEGER NOT NULL,
+    status          TEXT NOT NULL,
+    duration_ms     INTEGER DEFAULT 0,
+    error_message   TEXT,
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS flaky_history (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    test_name           TEXT NOT NULL,
+    module              TEXT,
+    flaky_score         REAL DEFAULT 0,
+    total_runs          INTEGER DEFAULT 0,
+    pass_count          INTEGER DEFAULT 0,
+    fail_count          INTEGER DEFAULT 0,
+    flip_count          INTEGER DEFAULT 0,
+    classification       TEXT DEFAULT 'STABLE',   -- STABLE | FLAKY | CHRONIC_FAILURE
+    last_evaluated_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(test_name, module)
+);
+
+CREATE TABLE IF NOT EXISTS ai_analyses (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id            INTEGER NOT NULL,
+    root_cause              TEXT,
+    severity                TEXT,
+    possible_reason         TEXT,
+    recommended_fix         TEXT,
+    prevention               TEXT,
+    confidence_score        REAL,
+    suggested_code          TEXT,
+    raw_model_output        TEXT,
+    model_name              TEXT,
+    created_at              TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS reports (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT NOT NULL,
+    report_type     TEXT NOT NULL,   -- html | pdf | json | csv
+    file_path       TEXT NOT NULL,
+    total_tests     INTEGER DEFAULT 0,
+    passed          INTEGER DEFAULT 0,
+    failed          INTEGER DEFAULT 0,
+    flaky           INTEGER DEFAULT 0,
+    created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL,
+    updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_executions_test_name ON executions(test_name);
+CREATE INDEX IF NOT EXISTS idx_executions_status ON executions(status);
+CREATE INDEX IF NOT EXISTS idx_executions_started_at ON executions(started_at);
+CREATE INDEX IF NOT EXISTS idx_retry_attempts_execution ON retry_attempts(execution_id);
 """
 
 
-def init_db():
-    """Initialize database schema."""
+def _connect(db_path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(db_path), timeout=30.0, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def get_connection() -> sqlite3.Connection:
+    """Return a thread-local SQLite connection (SQLite connections are not
+    safe to share across threads, so each thread gets its own)."""
+    if not hasattr(_local, "conn"):
+        _local.conn = _connect(settings.DATABASE_PATH)
+    return _local.conn
+
+
+@contextmanager
+def get_cursor(commit: bool = False) -> Iterator[sqlite3.Cursor]:
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        yield cur
+        if commit:
+            conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def _migrate_existing_schema(conn: sqlite3.Connection) -> None:
+    """Add columns/tables introduced after a database's initial creation.
+
+    SQLite's CREATE TABLE IF NOT EXISTS won't retrofit new columns onto a
+    table that already exists from an older version of this app, so any
+    database created before the `projects` feature needs an explicit
+    ALTER TABLE. This is deliberately simple (PRAGMA-check then ALTER)
+    rather than a full migration framework, since the schema is small and
+    changes infrequently.
+    """
+    existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(test_cases)").fetchall()}
+    if "project_id" not in existing_cols:
+        conn.execute("ALTER TABLE test_cases ADD COLUMN project_id INTEGER")
+    if "steps_json" not in existing_cols:
+        conn.execute("ALTER TABLE test_cases ADD COLUMN steps_json TEXT DEFAULT '[]'")
+    exec_cols = {row[1] for row in conn.execute("PRAGMA table_info(executions)").fetchall()}
+    if "browser_version" not in exec_cols:
+        conn.execute("ALTER TABLE executions ADD COLUMN browser_version TEXT")
+    conn.commit()
+
+
+def init_db() -> None:
+    """Create all tables/indexes if they do not already exist. Idempotent."""
     settings.ensure_directories()
-    with get_connection() as conn:
-        conn.executescript(SCHEMA)
+    conn = _connect(settings.DATABASE_PATH)
+    try:
+        conn.executescript(SCHEMA_SQL)
         conn.commit()
-    log.info("Database initialized at %s", settings.DATABASE_PATH)
+        _migrate_existing_schema(conn)
+    finally:
+        conn.close()
+
+
+def execute(query: str, params: tuple[Any, ...] = ()) -> int:
+    """Execute an INSERT/UPDATE/DELETE and return lastrowid."""
+    with get_cursor(commit=True) as cur:
+        cur.execute(query, params)
+        return cur.lastrowid
+
+
+def fetch_one(query: str, params: tuple[Any, ...] = ()) -> sqlite3.Row | None:
+    with get_cursor() as cur:
+        cur.execute(query, params)
+        return cur.fetchone()
+
+
+def fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
+    with get_cursor() as cur:
+        cur.execute(query, params)
+        return cur.fetchall()

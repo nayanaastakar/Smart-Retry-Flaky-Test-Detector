@@ -1,187 +1,303 @@
-"""Step executor: interprets step JSON against a Selenium WebDriver."""
-from __future__ import annotations
-import logging
-import time
-from typing import Any
+"""
+core/step_executor.py
+=======================
+The engine behind the visual Test Builder. A "test case" is no longer a
+hand-written Selenium script tied to one site -- it's an ordered list of
+JSON step dictionaries, and this module knows how to execute *any* of them
+against *any* driver/site. This is what makes the platform fully dynamic:
+add a project, describe steps in plain data, run them anywhere.
 
-log = logging.getLogger(__name__)
-
-try:
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.common.keys import Keys
-    from selenium.webdriver.common.action_chains import ActionChains
-    from selenium.webdriver.support.ui import WebDriverWait, Select
-    from selenium.webdriver.support import expected_conditions as EC
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    SELENIUM_AVAILABLE = False
-
-LOCATOR_MAP = {
-    "id": "By.ID",
-    "name": "By.NAME",
-    "xpath": "By.XPATH",
-    "css": "By.CSS_SELECTOR",
-    "class": "By.CLASS_NAME",
-    "tag": "By.TAG_NAME",
-    "link_text": "By.LINK_TEXT",
-    "partial_link_text": "By.PARTIAL_LINK_TEXT",
+Step shape (each item in a test case's steps_json list):
+{
+    "action": "click",                 # one of ACTION_HANDLERS keys
+    "locator_type": "css",             # id | name | xpath | css | link_text |
+                                        # partial_link_text | class_name | tag_name
+    "locator_value": "#submit-btn",
+    "input_value": "hello@example.com",
+    "timeout": 10,
+    "description": "Submit the login form"
 }
 
-def _by(locator_type: str):
-    mapping = {
-        "id": By.ID,
-        "name": By.NAME,
-        "xpath": By.XPATH,
-        "css": By.CSS_SELECTOR,
-        "class": By.CLASS_NAME,
-        "tag": By.TAG_NAME,
-        "link_text": By.LINK_TEXT,
-        "partial_link_text": By.PARTIAL_LINK_TEXT,
-    }
-    return mapping.get(locator_type.lower().strip(), By.XPATH)
+Not every action needs every field -- e.g. `wait` only needs `timeout`,
+`open_url` only needs `input_value`. Unused fields can be omitted/None.
+
+Security note: there is deliberately no "run arbitrary Python" step type.
+`custom_js` executes JavaScript inside the browser sandbox (standard
+Selenium capability, no different from what any Selenium script can already
+do), but arbitrary host-side Python execution from user-submitted step data
+would be a remote-code-execution hole and is intentionally not implemented.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Callable
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.select import Select
+from selenium.webdriver.support.ui import WebDriverWait
+
+LOCATOR_MAP = {
+    "id": By.ID,
+    "name": By.NAME,
+    "xpath": By.XPATH,
+    "css": By.CSS_SELECTOR,
+    "link_text": By.LINK_TEXT,
+    "partial_link_text": By.PARTIAL_LINK_TEXT,
+    "class_name": By.CLASS_NAME,
+    "tag_name": By.TAG_NAME,
+}
+
+KEY_ALIASES = {
+    "ENTER": Keys.ENTER, "RETURN": Keys.RETURN, "TAB": Keys.TAB, "ESCAPE": Keys.ESCAPE, "ESC": Keys.ESCAPE,
+    "BACKSPACE": Keys.BACKSPACE, "DELETE": Keys.DELETE, "SPACE": Keys.SPACE,
+    "ARROW_DOWN": Keys.ARROW_DOWN, "ARROW_UP": Keys.ARROW_UP, "ARROW_LEFT": Keys.ARROW_LEFT, "ARROW_RIGHT": Keys.ARROW_RIGHT,
+    "PAGE_UP": Keys.PAGE_UP, "PAGE_DOWN": Keys.PAGE_DOWN,
+}
 
 
-def find_element(driver, locator_type: str, locator_value: str, timeout: int = 10):
-    wait = WebDriverWait(driver, timeout)
-    return wait.until(EC.presence_of_element_located((_by(locator_type), locator_value.strip())))
+class StepExecutionError(AssertionError):
+    """Raised when a step fails; subclasses AssertionError so it reads
+    naturally as a test failure to the retry engine and reports."""
 
 
-def find_clickable(driver, locator_type: str, locator_value: str, timeout: int = 10):
-    wait = WebDriverWait(driver, timeout)
-    return wait.until(EC.element_to_be_clickable((_by(locator_type), locator_value.strip())))
+def _by(step: dict):
+    locator_type = (step.get("locator_type") or "css").lower()
+    by = LOCATOR_MAP.get(locator_type)
+    if by is None:
+        raise StepExecutionError(f"Unknown locator_type '{locator_type}'.")
+    return by
 
 
-def execute_step(driver, step: dict) -> dict:
-    """Execute a single step. Returns {'success': bool, 'message': str}."""
-    action = step.get("action", "")
-    locator_type = step.get("locator_type", "id")
-    locator_value = (step.get("locator_value") or "").strip()
-    input_value = (step.get("input_value") or "").strip()
-    timeout = int(step.get("timeout", 10))
+def _find(driver, step: dict, timeout: int):
+    locator_value = step.get("locator_value")
+    if not locator_value:
+        raise StepExecutionError(f"Step '{step.get('action')}' requires a locator_value.")
+    return WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located((_by(step), locator_value))
+    )
 
+
+def _find_clickable(driver, step: dict, timeout: int):
+    locator_value = step.get("locator_value")
+    if not locator_value:
+        raise StepExecutionError(f"Step '{step.get('action')}' requires a locator_value.")
+    return WebDriverWait(driver, timeout).until(
+        EC.element_to_be_clickable((_by(step), locator_value))
+    )
+
+
+def _act_open_url(driver, step, project_url):
+    url = step.get("input_value") or project_url
+    if not url:
+        raise StepExecutionError("open_url step has no URL and no project URL to fall back to.")
+    if url.startswith("/") and project_url:
+        from urllib.parse import urljoin
+        url = urljoin(project_url, url)
+    driver.get(url)
+
+
+def _act_click(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    _find_clickable(driver, step, timeout).click()
+
+
+def _act_double_click(driver, step, project_url):
+    from selenium.webdriver.common.action_chains import ActionChains
+    timeout = step.get("timeout") or 10
+    element = _find_clickable(driver, step, timeout)
+    ActionChains(driver).double_click(element).perform()
+
+
+def _act_right_click(driver, step, project_url):
+    from selenium.webdriver.common.action_chains import ActionChains
+    timeout = step.get("timeout") or 10
+    element = _find(driver, step, timeout)
+    ActionChains(driver).context_click(element).perform()
+
+
+def _act_type_text(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    element = _find(driver, step, timeout)
+    element.send_keys(step.get("input_value") or "")
+
+
+def _act_clear(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    _find(driver, step, timeout).clear()
+
+
+def _act_select_dropdown(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    element = _find(driver, step, timeout)
+    Select(element).select_by_visible_text(step.get("input_value") or "")
+
+
+def _act_check_checkbox(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    element = _find_clickable(driver, step, timeout)
+    if not element.is_selected():
+        element.click()
+
+
+def _act_wait(driver, step, project_url):
+    time.sleep(float(step.get("timeout") or 1))
+
+
+def _act_scroll_to(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    element = _find(driver, step, timeout)
+    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+
+
+def _act_hover(driver, step, project_url):
+    from selenium.webdriver.common.action_chains import ActionChains
+    timeout = step.get("timeout") or 10
+    element = _find(driver, step, timeout)
+    ActionChains(driver).move_to_element(element).perform()
+
+
+def _act_press_keys(driver, step, project_url):
+    key_name = (step.get("input_value") or "ENTER").upper()
+    key = KEY_ALIASES.get(key_name)
+    if key is None:
+        raise StepExecutionError(f"Unknown key '{key_name}'. Supported: {', '.join(KEY_ALIASES)}")
+    driver.switch_to.active_element.send_keys(key)
+
+
+def _act_switch_frame(driver, step, project_url):
+    value = step.get("locator_value") or step.get("input_value")
+    if value is None:
+        driver.switch_to.default_content()
+        return
     try:
-        if action == "open_url":
-            driver.get(input_value)
-            return {"success": True, "message": f"Opened {input_value}"}
+        index = int(value)
+        driver.switch_to.frame(index)
+    except ValueError:
+        driver.switch_to.frame(value)
 
-        elif action == "click":
-            el = find_clickable(driver, locator_type, locator_value, timeout)
-            el.click()
-            return {"success": True, "message": f"Clicked {locator_type}={locator_value}"}
 
-        elif action == "double_click":
-            el = find_clickable(driver, locator_type, locator_value, timeout)
-            ActionChains(driver).double_click(el).perform()
-            return {"success": True, "message": f"Double-clicked {locator_value}"}
+def _act_switch_window(driver, step, project_url):
+    handles = driver.window_handles
+    if not handles:
+        raise StepExecutionError("No window handles available.")
+    index_raw = step.get("input_value")
+    try:
+        index = int(index_raw) if index_raw not in (None, "") else -1
+        driver.switch_to.window(handles[index])
+    except (IndexError, ValueError) as exc:
+        raise StepExecutionError(f"Invalid window index '{index_raw}': {exc}") from exc
 
-        elif action == "right_click":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            ActionChains(driver).context_click(el).perform()
-            return {"success": True, "message": f"Right-clicked {locator_value}"}
 
-        elif action == "type_text":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            el.clear()
-            el.send_keys(input_value)
-            return {"success": True, "message": f"Typed into {locator_value}"}
+def _act_screenshot(driver, step, project_url):
+    try:
+        from config import settings
+        folder = settings.SCREENSHOTS_DIR / "checkpoints"
+        folder.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time() * 1000)
+        name = step.get("input_value") or f"checkpoint_{ts}"
+        safe_name = "".join(c if c.isalnum() else "_" for c in name)[:50]
+        driver.save_screenshot(str(folder / f"{safe_name}_{ts}.png"))
+    except Exception:
+        pass
 
-        elif action == "clear_field":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            el.clear()
-            return {"success": True, "message": f"Cleared {locator_value}"}
 
-        elif action == "select_dropdown":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            sel = Select(el)
-            try:
-                sel.select_by_visible_text(input_value)
-            except Exception:
-                sel.select_by_value(input_value)
-            return {"success": True, "message": f"Selected '{input_value}'"}
+def _act_assert_url_contains(driver, step, project_url):
+    expected = step.get("input_value") or ""
+    if expected not in driver.current_url:
+        raise StepExecutionError(f"Expected URL to contain '{expected}', got '{driver.current_url}'.")
 
-        elif action == "check_checkbox":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            if not el.is_selected():
-                el.click()
-            return {"success": True, "message": "Checked checkbox"}
 
-        elif action == "uncheck_checkbox":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            if el.is_selected():
-                el.click()
-            return {"success": True, "message": "Unchecked checkbox"}
+def _act_assert_title_contains(driver, step, project_url):
+    expected = step.get("input_value") or ""
+    if expected not in (driver.title or ""):
+        raise StepExecutionError(f"Expected title to contain '{expected}', got '{driver.title}'.")
 
-        elif action == "wait":
-            secs = float(input_value) if input_value else 1.0
-            time.sleep(secs)
-            return {"success": True, "message": f"Waited {secs}s"}
 
-        elif action == "wait_for_element":
-            find_element(driver, locator_type, locator_value, timeout)
-            return {"success": True, "message": f"Element found: {locator_value}"}
+def _act_assert_text_present(driver, step, project_url):
+    expected = step.get("input_value") or ""
+    body_text = driver.find_element(By.TAG_NAME, "body").text
+    if expected not in body_text:
+        raise StepExecutionError(f"Expected page text to contain '{expected}'.")
 
-        elif action == "scroll_to_element":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            driver.execute_script("arguments[0].scrollIntoView(true);", el)
-            return {"success": True, "message": f"Scrolled to {locator_value}"}
 
-        elif action == "scroll_page":
-            driver.execute_script(f"window.scrollBy(0, {input_value or 300});")
-            return {"success": True, "message": "Page scrolled"}
+def _act_assert_element_visible(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    try:
+        WebDriverWait(driver, timeout).until(EC.visibility_of_element_located((_by(step), step.get("locator_value"))))
+    except Exception as exc:
+        raise StepExecutionError(f"Element not visible: {step.get('locator_value')}") from exc
 
-        elif action == "hover":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            ActionChains(driver).move_to_element(el).perform()
-            return {"success": True, "message": f"Hovered over {locator_value}"}
 
-        elif action == "press_key":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            key = getattr(Keys, input_value.upper(), input_value)
-            el.send_keys(key)
-            return {"success": True, "message": f"Pressed {input_value}"}
+def _act_assert_element_exists(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    try:
+        _find(driver, step, timeout)
+    except Exception as exc:
+        raise StepExecutionError(f"Element does not exist: {step.get('locator_value')}") from exc
 
-        elif action == "switch_frame":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            driver.switch_to.frame(el)
-            return {"success": True, "message": "Switched to frame"}
 
-        elif action == "switch_window":
-            idx = int(input_value) if input_value.isdigit() else 1
-            driver.switch_to.window(driver.window_handles[idx])
-            return {"success": True, "message": f"Switched to window {idx}"}
+def _act_assert_attribute(driver, step, project_url):
+    timeout = step.get("timeout") or 10
+    element = _find(driver, step, timeout)
+    attr_name, _, expected_value = (step.get("input_value") or "").partition("=")
+    actual = element.get_attribute(attr_name.strip())
+    if actual != expected_value.strip():
+        raise StepExecutionError(f"Attribute '{attr_name}' expected '{expected_value}', got '{actual}'.")
 
-        elif action == "screenshot":
-            return {"success": True, "message": "Screenshot taken", "take_screenshot": True}
 
-        elif action == "assert_text":
-            assert input_value in driver.page_source, f"Text '{input_value}' not found on page"
-            return {"success": True, "message": f"Text '{input_value}' found"}
+def _act_custom_js(driver, step, project_url):
+    script = step.get("input_value") or ""
+    driver.execute_script(script)
 
-        elif action == "assert_element_visible":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            assert el.is_displayed(), f"Element {locator_value} not visible"
-            return {"success": True, "message": f"Element {locator_value} is visible"}
 
-        elif action == "assert_url_contains":
-            WebDriverWait(driver, timeout).until(EC.url_contains(input_value))
-            return {"success": True, "message": f"URL contains '{input_value}'"}
+ACTION_HANDLERS: dict[str, Callable] = {
+    "open_url": _act_open_url,
+    "click": _act_click,
+    "double_click": _act_double_click,
+    "right_click": _act_right_click,
+    "type_text": _act_type_text,
+    "clear": _act_clear,
+    "select_dropdown": _act_select_dropdown,
+    "check_checkbox": _act_check_checkbox,
+    "wait": _act_wait,
+    "scroll_to": _act_scroll_to,
+    "hover": _act_hover,
+    "press_keys": _act_press_keys,
+    "switch_frame": _act_switch_frame,
+    "switch_window": _act_switch_window,
+    "screenshot": _act_screenshot,
+    "assert_url_contains": _act_assert_url_contains,
+    "assert_title_contains": _act_assert_title_contains,
+    "assert_text_present": _act_assert_text_present,
+    "assert_element_visible": _act_assert_element_visible,
+    "assert_element_exists": _act_assert_element_exists,
+    "assert_attribute": _act_assert_attribute,
+    "custom_js": _act_custom_js,
+}
 
-        elif action == "assert_title_contains":
-            assert input_value.lower() in driver.title.lower(), f"Title '{driver.title}' doesn't contain '{input_value}'"
-            return {"success": True, "message": f"Title contains '{input_value}'"}
+STEP_ACTION_CHOICES = list(ACTION_HANDLERS.keys())
 
-        elif action == "assert_element_text":
-            el = find_element(driver, locator_type, locator_value, timeout)
-            actual = el.text.strip()
-            assert input_value in actual, f"Expected '{input_value}' in '{actual}'"
-            return {"success": True, "message": f"Element text matches"}
 
-        elif action == "custom_js":
-            result = driver.execute_script(input_value)
-            return {"success": True, "message": f"JS executed: {result}"}
+def execute_steps(driver, steps: list[dict], project_url: str | None = None) -> None:
+    """Run an ordered list of steps against `driver`. Raises StepExecutionError
+    (or lets the underlying Selenium exception propagate) on the first
+    failing step -- the retry engine treats either as a normal test failure.
+    """
+    if not steps:
+        raise StepExecutionError("This test case has no steps defined.")
 
-        else:
-            return {"success": False, "message": f"Unknown action: {action}"}
-
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+    for index, step in enumerate(steps, start=1):
+        action = step.get("action")
+        handler = ACTION_HANDLERS.get(action)
+        if handler is None:
+            raise StepExecutionError(f"Step {index}: unknown action '{action}'.")
+        try:
+            handler(driver, step, project_url)
+        except StepExecutionError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            desc = step.get("description") or action
+            raise StepExecutionError(f"Step {index} ({desc}) failed: {exc}") from exc

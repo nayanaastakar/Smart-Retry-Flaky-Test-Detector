@@ -1,178 +1,162 @@
-"""Project runner: runs test cases through SmartRetryEngine."""
+"""
+core/project_runner.py
+========================
+Orchestrates a full project run: one real Selenium session, every enabled
+test case's step sequence executed in turn through SmartRetryEngine +
+EvidenceCollector, then FlakyDetector re-scored for the whole batch. This is
+the dynamic-project equivalent of the Quick Run feature (routes/run_routes.py)
+-- same pipeline, but driven by user-authored steps instead of a fixed
+generic check battery.
+"""
+
 from __future__ import annotations
+
 import json
 import logging
-import os
-import time
-import traceback
-from datetime import datetime
-from pathlib import Path
 
-from config import settings
-from database.db_manager import execute, fetchone, fetchall
+from database.db_manager import fetch_all
+from core.evidence_collector import EvidenceCollector
+from core.flaky_detector import FlakyDetector
+from core.retry_engine import SmartRetryEngine
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger("smart_retry.project_runner")
 
 
-def _take_screenshot(driver, execution_id: int, step_num: int, attempt: int) -> str | None:
+def run_project(project: dict, job=None) -> dict:
+    """Run every enabled test case belonging to `project`. Returns a summary
+    dict: {total, pass, fail, flaky, skipped_no_tests}."""
+    test_rows = fetch_all(
+        "SELECT * FROM test_cases WHERE project_id = ? AND enabled = 1 ORDER BY id ASC",
+        (project["id"],),
+    )
+    if not test_rows:
+        return {"total": 0, "pass": 0, "fail": 0, "flaky": 0, "skipped_no_tests": True}
+
+    # Deferred on purpose: only import Selenium once we know there's actually
+    # something to run, so an empty project doesn't require Selenium to be
+    # installed just to tell you it has no test cases yet.
+    from core.driver_factory import create_driver, quit_driver
+    from core.step_executor import execute_steps
+
+    emit = (lambda lvl, msg: job.log(lvl, msg)) if job else None
+    if job:
+        job.set_total(len(test_rows))
+        job.log("info", f"Starting browser ({project.get('browser') or 'chrome'}) for {project['url']}")
+
+    driver = create_driver(browser=project.get("browser") or "chrome")
+    engine = SmartRetryEngine()
+    results = {"PASS": 0, "FAIL": 0, "FLAKY": 0}
+    checked_names: set[str] = set()
+
     try:
-        ts = int(time.time())
-        fname = f"exec_{execution_id}_step{step_num}_attempt{attempt}_{ts}.png"
-        path = settings.EVIDENCE_DIR / "screenshots" / fname
-        path.parent.mkdir(parents=True, exist_ok=True)
-        driver.save_screenshot(str(path))
-        return str(path)
-    except Exception as e:
-        log.warning("Screenshot failed: %s", e)
-        return None
+        for row in test_rows:
+            test_case = dict(row)
+            try:
+                steps = json.loads(test_case["steps_json"] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                steps = []
 
+            def evidence_collector(exc, _name=test_case["name"]):
+                collector = EvidenceCollector(driver, run_id=project["name"], test_name=_name)
+                return collector.capture(exc)
 
-def run_single_test_case(test_case_id: int) -> dict:
-    """Run a single test case with smart retry. Returns result dict."""
-    row = fetchone("SELECT * FROM test_cases WHERE id=?", (test_case_id,))
-    if not row:
-        return {"pass": 0, "error": "Test case not found"}
+            def run_this_test_case(_steps=steps, _url=project["url"]):
+                execute_steps(driver, _steps, project_url=_url)
 
-    test_name = row["name"]
-    steps = json.loads(row["steps_json"] or "[]")
-    browser = "chrome"
-    
-    # Get project browser
-    if row["project_id"]:
-        proj = fetchone("SELECT browser, url FROM projects WHERE id=?", (row["project_id"],))
-        if proj:
-            browser = proj["browser"]
+            result = engine.run(
+                run_this_test_case,
+                test_name=test_case["name"],
+                module=project["name"],
+                website_profile=project["url"],
+                browser=project.get("browser") or "chrome",
+                os_name=None,
+                evidence_collector=evidence_collector,
+                on_event=emit,
+            )
+            results[result.status.value] = results.get(result.status.value, 0) + 1
+            checked_names.add(test_case["name"])
+            if job:
+                job.advance()
+    finally:
+        quit_driver(driver)
 
-    # Create execution record
-    exec_id = execute(
-        """INSERT INTO executions (project_id, test_case_id, test_name, status, browser, started_at)
-           VALUES (?,?,?,?,?,?)""",
-        (row["project_id"], test_case_id, test_name, "running", browser, datetime.utcnow().isoformat())
-    )
-
-    from core.step_executor import execute_step
-
-    last_error = None
-    passed = False
-    screenshot_path = None
-    logs = []
-    attempt = 0
-
-    for attempt in range(settings.MAX_RETRIES + 1):
-        driver = None
-        try:
-            from core.driver_factory import create_driver
-            driver = create_driver(browser)
-            logs.append(f"[Attempt {attempt+1}] Browser launched")
-
-            step_results = []
-            all_passed = True
-
-            for i, step in enumerate(steps):
-                action = step.get("action", "")
-                result = execute_step(driver, step)
-                logs.append(f"  Step {i+1} [{action}]: {result['message']}")
-
-                # Take screenshot if requested or on failure
-                if result.get("take_screenshot") or not result["success"]:
-                    sc = _take_screenshot(driver, exec_id, i+1, attempt+1)
-                    if sc:
-                        screenshot_path = sc
-
-                if not result["success"]:
-                    all_passed = False
-                    last_error = result["message"]
-                    break
-
-            if all_passed:
-                passed = True
-                # Final screenshot
-                sc = _take_screenshot(driver, exec_id, len(steps), attempt+1)
-                if sc:
-                    screenshot_path = sc
-                logs.append(f"[Attempt {attempt+1}] PASSED")
-                break
-            else:
-                logs.append(f"[Attempt {attempt+1}] FAILED: {last_error}")
-
-        except Exception as e:
-            last_error = str(e)
-            logs.append(f"[Attempt {attempt+1}] EXCEPTION: {last_error}")
-            log.exception("Attempt %d failed for test %s", attempt+1, test_name)
-        finally:
-            if driver:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
-
-        # Save retry record
-        execute(
-            """INSERT INTO retries (execution_id, attempt_number, status, error_message)
-               VALUES (?,?,?,?)""",
-            (exec_id, attempt+1, "pass" if passed else "fail", last_error)
-        )
-
-        if passed:
-            break
-
-        if attempt < settings.MAX_RETRIES:
-            delay = settings.RETRY_DELAY_SECONDS * (settings.RETRY_BACKOFF_MULTIPLIER ** attempt)
-            time.sleep(delay)
-
-    # Determine flaky: passed on retry (not first attempt)
-    flaky = passed and attempt > 0
-    status = "pass" if passed else "fail"
-    if flaky:
-        status = "flaky"
-
-    log_output = "\n".join(logs)
-
-    # Update execution
-    execute(
-        """UPDATE executions SET status=?, pass=?, fail=?, flaky=?, retry_count=?,
-           error_message=?, screenshot_path=?, log_output=?, finished_at=?
-           WHERE id=?""",
-        (
-            status, 1 if passed else 0, 0 if passed else 1, 1 if flaky else 0,
-            attempt, last_error, screenshot_path, log_output,
-            datetime.utcnow().isoformat(), exec_id
-        )
-    )
+    detector = FlakyDetector()
+    for name in checked_names:
+        detector.evaluate_test(name, module=project["name"])
 
     return {
-        "pass": 1 if passed else 0,
-        "flaky": 1 if flaky else 0,
-        "status": status,
-        "retries": attempt,
-        "execution_id": exec_id,
-        "screenshot_path": screenshot_path,
-        "error": last_error,
-        "logs": log_output,
+        "total": sum(results.values()),
+        "pass": results.get("PASS", 0),
+        "fail": results.get("FAIL", 0),
+        "flaky": results.get("FLAKY", 0),
+        "skipped_no_tests": False,
     }
 
 
-def run_project(project_id: int) -> dict:
-    """Run all enabled test cases for a project."""
-    test_cases = fetchall(
-        "SELECT id FROM test_cases WHERE project_id=? AND enabled=1 ORDER BY id",
-        (project_id,)
-    )
-    if not test_cases:
-        return {"error": "No enabled test cases", "results": []}
+def run_single_test_case(test_case_id: int, job=None) -> dict:
+    """Run exactly one test case's step sequence, looking up its parent
+    project for the URL/browser. Returns the same summary shape as
+    run_project() but for a batch of one."""
+    from database.db_manager import fetch_one
 
-    results = []
-    for tc in test_cases:
-        result = run_single_test_case(tc["id"])
-        results.append(result)
+    test_case = fetch_one("SELECT * FROM test_cases WHERE id = ?", (test_case_id,))
+    if not test_case:
+        raise ValueError(f"Test case {test_case_id} not found.")
+    test_case = dict(test_case)
 
-    total = len(results)
-    passed = sum(1 for r in results if r.get("pass"))
-    failed = total - passed
+    if not test_case.get("project_id"):
+        raise ValueError("This test case isn't linked to a project, so there's no URL to run it against.")
+
+    project = fetch_one("SELECT * FROM projects WHERE id = ?", (test_case["project_id"],))
+    if not project:
+        raise ValueError("The project this test case belongs to no longer exists.")
+    project = dict(project)
+
+    from core.driver_factory import create_driver, quit_driver
+    from core.step_executor import execute_steps
+
+    try:
+        steps = json.loads(test_case["steps_json"] or "[]")
+    except (json.JSONDecodeError, TypeError):
+        steps = []
+
+    if job:
+        job.set_total(1)
+        job.log("info", f"Starting browser ({project.get('browser') or 'chrome'}) for {project['url']}")
+    driver = create_driver(browser=project.get("browser") or "chrome")
+    engine = SmartRetryEngine()
+
+    try:
+        def evidence_collector(exc):
+            collector = EvidenceCollector(driver, run_id=project["name"], test_name=test_case["name"])
+            return collector.capture(exc)
+
+        def run_it():
+            execute_steps(driver, steps, project_url=project["url"])
+
+        result = engine.run(
+            run_it,
+            test_name=test_case["name"],
+            module=project["name"],
+            website_profile=project["url"],
+            browser=project.get("browser") or "chrome",
+            os_name=None,
+            evidence_collector=evidence_collector,
+            on_event=(lambda lvl, msg: job.log(lvl, msg)) if job else None,
+        )
+        if job:
+            job.advance()
+    finally:
+        quit_driver(driver)
+
+    detector = FlakyDetector()
+    detector.evaluate_test(test_case["name"], module=project["name"])
 
     return {
-        "total": total,
-        "passed": passed,
-        "failed": failed,
-        "results": results,
+        "total": 1,
+        "pass": 1 if result.status.value == "PASS" else 0,
+        "fail": 1 if result.status.value == "FAIL" else 0,
+        "flaky": 1 if result.status.value == "FLAKY" else 0,
+        "skipped_no_tests": False,
+        "project_name": project["name"],
     }

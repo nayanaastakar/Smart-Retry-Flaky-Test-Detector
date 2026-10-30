@@ -42,22 +42,20 @@ class Config:
     # --- Paths ------------------------------------------------------------
     BASE_DIR: Path = BASE_DIR
     DATABASE_PATH: Path = BASE_DIR / "database" / "framework.db"
-    # Legacy screenshots dir (kept for backward-compat); new code uses EVIDENCE_DIR
-    SCREENSHOTS_DIR: Path = BASE_DIR / "evidence" / "screenshots"
+    SCREENSHOTS_DIR: Path = BASE_DIR / "screenshots"
     LOGS_DIR: Path = BASE_DIR / "logs"
     REPORTS_DIR: Path = BASE_DIR / "reports"
     WEBSITE_PROFILES_DIR: Path = BASE_DIR / "website_profiles"
-    EVIDENCE_DIR: Path = BASE_DIR / "evidence"
 
     # --- Selenium / test execution -----------------------------------------
     DEFAULT_BROWSER: str = os.getenv("DEFAULT_BROWSER", "chrome")  # chrome|edge|firefox
     HEADLESS: bool = _bool(os.getenv("HEADLESS"), default=True)
-    IMPLICIT_WAIT: int = int(os.getenv("IMPLICIT_WAIT", "0"))
+    IMPLICIT_WAIT: int = int(os.getenv("IMPLICIT_WAIT", "10"))
     EXECUTION_TIMEOUT: int = int(os.getenv("EXECUTION_TIMEOUT", "120"))  # seconds per test
 
     # --- Smart Retry Engine ------------------------------------------------
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
-    RETRY_DELAY_SECONDS: float = float(os.getenv("RETRY_DELAY_SECONDS", "1.0"))
+    RETRY_DELAY_SECONDS: float = float(os.getenv("RETRY_DELAY_SECONDS", "2.0"))
     RETRY_BACKOFF_MULTIPLIER: float = float(os.getenv("RETRY_BACKOFF_MULTIPLIER", "1.5"))
 
     # --- Flaky Detection -----------------------------------------------------
@@ -68,7 +66,7 @@ class Config:
     AI_ENABLED: bool = _bool(os.getenv("AI_ENABLED"), default=True)
     OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1")
-    AI_REQUEST_TIMEOUT: int = int(os.getenv("AI_REQUEST_TIMEOUT", "30"))
+    AI_REQUEST_TIMEOUT: int = int(os.getenv("AI_REQUEST_TIMEOUT", "60"))
 
     # --- Auth ---------------------------------------------------------------
     SESSION_LIFETIME_DAYS: int = int(os.getenv("SESSION_LIFETIME_DAYS", "7"))
@@ -82,7 +80,6 @@ class Config:
         """Create every directory this app depends on if it does not exist yet."""
         for path in (
             self.DATABASE_PATH.parent,
-            self.EVIDENCE_DIR,
             self.SCREENSHOTS_DIR,
             self.LOGS_DIR,
             self.REPORTS_DIR,

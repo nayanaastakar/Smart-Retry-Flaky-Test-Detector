@@ -1,9 +1,93 @@
-{% extends "base.html" %}{% block title %}Settings{% endblock %}{% block page_title %}Settings{% endblock %}
-{% block content %}<div class="card"><div class="card-header">Configuration</div><div class="card-body">
-<p><b>Browser:</b> {{ settings.DEFAULT_BROWSER }}</p>
-<p><b>Headless:</b> {{ settings.HEADLESS }}</p>
-<p><b>Max Retries:</b> {{ settings.MAX_RETRIES }}</p>
-<p><b>Retry Delay:</b> {{ settings.RETRY_DELAY_SECONDS }}s</p>
-<p><b>AI Enabled:</b> {{ settings.AI_ENABLED }}</p>
-<p class="text-muted small">Edit .env file to change settings, then restart the server.</p>
-</div></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-subtitle">Configure how the framework runs, retries, and analyzes your tests.</p>
+  </div>
+</div>
+
+<form method="POST" action="{{ url_for('settings.index') }}">
+  <div class="grid grid-2col">
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-header"><h3 class="card-title"><i class="fa-solid fa-globe"></i> Execution</h3></div>
+
+      <div class="form-group">
+        <label class="form-label">Default Browser</label>
+        <select name="browser" class="form-control">
+          {% for b in ['chrome','edge','firefox'] %}
+          <option value="{{ b }}" {{ 'selected' if settings.get('browser') == b }}>{{ b|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Execution Timeout (seconds)</label>
+        <input type="number" name="execution_timeout" class="form-control" value="{{ settings.get('execution_timeout', 120) }}">
+      </div>
+
+      <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+        <div>
+          <label class="form-label" style="margin-bottom:2px;">Headless Mode</label>
+          <p class="form-hint">Run browsers without a visible window.</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" name="headless_present" {{ 'checked' if settings.get('headless') == 'true' }}
+            onchange="document.getElementById('headlessValue').value = this.checked ? 'true' : 'false';">
+          <span class="switch-slider"></span>
+        </label>
+        <input type="hidden" id="headlessValue" name="headless" value="{{ settings.get('headless','true') }}">
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-header"><h3 class="card-title"><i class="fa-solid fa-rotate-right"></i> Smart Retry</h3></div>
+
+      <div class="form-group">
+        <label class="form-label">Retry Count</label>
+        <input type="number" min="0" max="10" name="retry_count" class="form-control" value="{{ settings.get('retry_count', 3) }}">
+        <p class="form-hint">Number of additional attempts after the first failure.</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Retry Delay (seconds)</label>
+        <input type="number" step="0.5" name="retry_delay" class="form-control" value="{{ settings.get('retry_delay', 2) }}">
+        <p class="form-hint">Base delay between attempts, applied with exponential backoff.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-2col">
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-header"><h3 class="card-title"><i class="fa-solid fa-palette"></i> Appearance</h3></div>
+      <div class="form-group">
+        <label class="form-label">Theme</label>
+        <select name="theme" class="form-control">
+          <option value="dark" {{ 'selected' if settings.get('theme') == 'dark' }}>Dark</option>
+          <option value="light" {{ 'selected' if settings.get('theme') == 'light' }}>Light</option>
+        </select>
+        <p class="form-hint">The live toggle in the topbar overrides this instantly; this sets your default.</p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:18px;">
+      <div class="card-header"><h3 class="card-title"><i class="fa-solid fa-brain"></i> AI Failure Analysis</h3></div>
+      <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+        <div>
+          <label class="form-label" style="margin-bottom:2px;">Enable AI Analysis</label>
+          <p class="form-hint">Uses a local Ollama (llama3.1) model — no data leaves your machine.</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" name="ai_enabled_present" {{ 'checked' if settings.get('ai_enabled') == 'true' }}
+            onchange="document.getElementById('aiValue').value = this.checked ? 'true' : 'false';">
+          <span class="switch-slider"></span>
+        </label>
+        <input type="hidden" id="aiValue" name="ai_enabled" value="{{ settings.get('ai_enabled','true') }}">
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Settings</button>
+</form>
+{% endblock %}

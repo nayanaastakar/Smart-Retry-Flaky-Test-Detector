@@ -1,55 +1,81 @@
-from flask import Blueprint, render_template, redirect, url_for, session, request, jsonify, flash
-from database.db_manager import fetchall, fetchone, execute
+"""routes/ai_analysis_routes.py - Module 6 browsing UI: list/filter AI analyses, bulk-run."""
+
+from __future__ import annotations
+
+from flask import Blueprint, flash, redirect, render_template, request, url_for
+
+from database.db_manager import fetch_all
+from routes.auth_routes import login_required
+
 ai_analysis_bp = Blueprint("ai_analysis", __name__, url_prefix="/ai-analysis")
-def login_required(f):
-    from functools import wraps
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user_id" not in session:
-            return redirect(url_for("auth.login"))
-        return f(*args, **kwargs)
-    return decorated
+
+MAX_BULK_RUN = 15  # cap per click so a single request can't run indefinitely
+
+
 @ai_analysis_bp.route("/")
 @login_required
 def index():
-    analyses = fetchall("SELECT a.*, e.test_name, e.status FROM ai_analysis a JOIN executions e ON a.execution_id=e.id ORDER BY a.analyzed_at DESC LIMIT 20")
-    pending = fetchall("SELECT * FROM executions WHERE status IN ('fail','flaky') AND id NOT IN (SELECT execution_id FROM ai_analysis) ORDER BY started_at DESC LIMIT 5")
-    return render_template("ai_analysis/index.html", analyses=analyses, pending=pending)
+    severity_filter = request.args.get("severity", "")
+    where = []
+    params: list = []
+    if severity_filter:
+        where.append("a.severity = ?")
+        params.append(severity_filter)
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
-@ai_analysis_bp.route("/analyze/<int:exec_id>", methods=["POST"])
-@login_required
-def analyze(exec_id):
-    execution = fetchone("SELECT * FROM executions WHERE id=?", (exec_id,))
-    if not execution:
-        flash("Execution not found", "error")
-        return redirect(url_for("ai_analysis.index"))
-    # Heuristic analysis (no Ollama required)
-    error = execution["error_message"] or ""
-    if "TimeoutException" in error or "timeout" in error.lower():
-        root_cause = "Element wait timeout - element may not exist or page load is slow"
-        fix = "Increase timeout, check locator, or add explicit waits"
-        severity = "high"
-    elif "NoSuchElement" in error or "no such element" in error.lower():
-        root_cause = "Element not found - locator may be incorrect or element is dynamic"
-        fix = "Review and update the element locator"
-        severity = "high"
-    elif "StaleElement" in error:
-        root_cause = "Stale element reference - DOM was updated after element was found"
-        fix = "Re-find the element or add a wait before interaction"
-        severity = "medium"
-    elif error:
-        root_cause = f"Test failure: {error[:200]}"
-        fix = "Review test steps and application state"
-        severity = "medium"
-    else:
-        root_cause = "Unknown failure - no error message recorded"
-        fix = "Enable detailed logging and re-run the test"
-        severity = "low"
-    execute(
-        """INSERT OR REPLACE INTO ai_analysis 
-           (execution_id, root_cause, suggested_fix, severity, confidence_score, recommendations, model_used)
-           VALUES (?,?,?,?,?,?,?)""",
-        (exec_id, root_cause, fix, severity, 0.75, "Review logs and screenshots for details", "heuristic")
+    rows = fetch_all(
+        f"""SELECT a.*, e.test_name, e.module, e.status AS execution_status
+            FROM ai_analyses a JOIN executions e ON e.id = a.execution_id
+            {where_sql} ORDER BY a.id DESC LIMIT 100""",
+        tuple(params),
     )
-    flash("Analysis complete", "success")
+
+    pending_row = fetch_all(
+        """SELECT COUNT(*) c FROM executions
+           WHERE status IN ('FAIL','FLAKY') AND ai_analysis_id IS NULL"""
+    )
+    pending_count = pending_row[0]["c"] if pending_row else 0
+
+    severity_counts = {
+        r["severity"]: r["c"]
+        for r in fetch_all("SELECT severity, COUNT(*) c FROM ai_analyses GROUP BY severity")
+    }
+
+    return render_template(
+        "ai_analysis/index.html",
+        analyses=[dict(r) for r in rows],
+        severity_filter=severity_filter,
+        pending_count=pending_count,
+        severity_counts=severity_counts,
+        max_bulk_run=MAX_BULK_RUN,
+        active_page="ai_analysis",
+    )
+
+
+@ai_analysis_bp.route("/bulk-run", methods=["POST"])
+@login_required
+def bulk_run():
+    from ai.analyzer import AIAnalysisError, AIFailureAnalyzer
+
+    targets = fetch_all(
+        """SELECT id FROM executions
+           WHERE status IN ('FAIL','FLAKY') AND ai_analysis_id IS NULL
+           ORDER BY id DESC LIMIT ?""",
+        (MAX_BULK_RUN,),
+    )
+
+    if not targets:
+        flash("No unanalyzed FAIL/FLAKY executions to process.", "info")
+        return redirect(url_for("ai_analysis.index"))
+
+    analyzer = AIFailureAnalyzer()
+    succeeded, failed = 0, 0
+    for row in targets:
+        try:
+            analyzer.analyze_execution_with_fallback(row["id"])
+            succeeded += 1
+        except AIAnalysisError:
+            failed += 1
+
+    flash(f"Bulk analysis complete: {succeeded} analyzed, {failed} skipped.", "success" if succeeded else "error")
     return redirect(url_for("ai_analysis.index"))

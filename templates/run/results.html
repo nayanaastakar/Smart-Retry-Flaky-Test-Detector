@@ -1,13 +1,139 @@
-{% extends "base.html" %}{% block title %}Results - {{ project_name }}{% endblock %}{% block page_title %}Results: {{ project_name }}{% endblock %}
+{% extends "base.html" %}
+{% block title %}Results for {{ domain }}{% endblock %}
 {% block content %}
-<div class="card"><div class="card-header">Execution Results</div><div class="card-body p-0">
-{% if executions %}<table class="table table-dark mb-0">
-<thead><tr><th>Test</th><th>Status</th><th>Retries</th><th>Time</th></tr></thead>
-<tbody>{% for e in executions %}<tr>
-<td>{{ e.test_name }}</td>
-<td>{% if e.status=='pass'%}<span class="badge badge-pass">PASS</span>{% elif e.status=='fail'%}<span class="badge badge-fail">FAIL</span>{% else %}<span class="badge badge-flaky">FLAKY</span>{% endif %}</td>
-<td>{{ e.retry_count or 0 }}</td>
-<td class="text-muted small">{{ e.started_at[:16] if e.started_at else '-' }}</td>
-</tr>{% endfor %}</tbody></table>
-{% else %}<div class="text-center py-4 text-muted">No results yet.</div>{% endif %}
-</div></div>{% endblock %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ domain }}</h1>
+    <p class="page-subtitle">Flakiness verdict from generic smoke checks &middot; <a href="{{ url_for('history.index', module=domain) }}" style="color:var(--accent-hover); text-decoration:underline;">view full execution history</a></p>
+  </div>
+</div>
+
+<!-- Overall verdict banner -->
+<div class="card" style="margin-bottom:18px; display:flex; align-items:center; gap:18px;
+  {% if overall_verdict == 'STABLE' %}border-left:4px solid var(--status-pass);
+  {% elif overall_verdict == 'FLAKY' %}border-left:4px solid var(--status-flaky);
+  {% else %}border-left:4px solid var(--status-fail);{% endif %}">
+  <div class="kpi-icon" style="margin-bottom:0; width:52px; height:52px; font-size:22px;
+    {% if overall_verdict == 'STABLE' %}background:var(--status-pass-soft); color:var(--status-pass);
+    {% elif overall_verdict == 'FLAKY' %}background:var(--status-flaky-soft); color:var(--status-flaky);
+    {% else %}background:var(--status-fail-soft); color:var(--status-fail);{% endif %}">
+    <i class="fa-solid {% if overall_verdict == 'STABLE' %}fa-shield-check{% elif overall_verdict == 'FLAKY' %}fa-wave-square{% else %}fa-triangle-exclamation{% endif %}"></i>
+  </div>
+  <div>
+    <div style="font-size:17px; font-weight:800;">
+      {% if overall_verdict == 'STABLE' %}This site looks stable
+      {% elif overall_verdict == 'FLAKY' %}This site shows flaky behavior
+      {% else %}This site is chronically failing checks{% endif %}
+    </div>
+    <div style="color:var(--text-secondary); font-size:13px; margin-top:2px;">
+      {% if overall_verdict == 'STABLE' %}All checks passed consistently across every run recorded for this domain.
+      {% elif overall_verdict == 'FLAKY' %}{{ flaky_checks|length }} check(s) flip between pass and fail across runs — see below.
+      {% else %}{{ chronic_checks|length }} check(s) have failed on every run with no passes yet.{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Per-check flakiness table -->
+<div class="card" style="margin-bottom:18px;">
+  <div class="card-header"><h3 class="card-title">Per-Check Stability</h3></div>
+  {% if checks %}
+  <table class="data-table">
+    <thead><tr><th>Check</th><th>Runs</th><th>Pass</th><th>Fail</th><th>Flips</th><th>Flaky Score</th><th>Classification</th></tr></thead>
+    <tbody>
+      {% for c in checks %}
+      <tr>
+        <td style="font-weight:600;">{{ c.test_name }}</td>
+        <td class="mono">{{ c.total_runs }}</td>
+        <td class="mono" style="color:var(--status-pass);">{{ c.pass_count }}</td>
+        <td class="mono" style="color:var(--status-fail);">{{ c.fail_count }}</td>
+        <td class="mono">{{ c.flip_count }}</td>
+        <td>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div class="progress-track" style="width:90px;">
+              <div class="progress-fill" style="width:{{ c.flaky_score }}%; background:{{ 'var(--status-fail)' if c.classification == 'CHRONIC_FAILURE' else ('var(--status-flaky)' if c.classification == 'FLAKY' else 'var(--status-pass)') }};"></div>
+            </div>
+            <span class="mono" style="font-size:11.5px;">{{ c.flaky_score }}%</span>
+          </div>
+        </td>
+        <td>
+          {% if c.classification == 'STABLE' %}<span class="badge badge-pass">Stable</span>
+          {% elif c.classification == 'FLAKY' %}<span class="badge badge-flaky">Flaky</span>
+          {% else %}<span class="badge badge-fail">Chronic Failure</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty-state"><i class="fa-solid fa-magnifying-glass"></i><p>No scored checks yet.</p></div>
+  {% endif %}
+</div>
+
+<!-- Recent raw executions for this domain -->
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title">Recent Runs</h3>
+    <a href="#" class="btn btn-primary" onclick="openRunModal(); return false;" style="padding:7px 14px; font-size:12.5px;"><i class="fa-solid fa-rotate-right"></i> Run Again</a>
+  </div>
+  <table class="data-table">
+    <thead><tr><th>Check</th><th>Status</th><th>Attempts</th><th>Duration</th><th>When</th></tr></thead>
+    <tbody>
+      {% for e in executions[:20] %}
+      <tr onclick="window.location='{{ url_for('history.detail', execution_id=e.id) }}'" style="cursor:pointer;">
+        <td>{{ e.test_name }}</td>
+        <td>
+          {% if e.status == 'PASS' %}<span class="badge badge-pass">Pass</span>
+          {% elif e.status == 'FAIL' %}<span class="badge badge-fail">Fail</span>
+          {% else %}<span class="badge badge-flaky">Flaky</span>{% endif %}
+        </td>
+        <td class="mono">{{ e.attempt_count }}</td>
+        <td class="mono">{{ (e.duration_ms / 1000) | round(2) }}s</td>
+        <td class="mono" style="font-size:11.5px; color:var(--text-tertiary);">{{ e.started_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Reuse the same Quick Run modal so "Run Again" works without leaving this page -->
+<div id="runModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(4,7,15,0.6); backdrop-filter:blur(3px); align-items:center; justify-content:center; z-index:1000;">
+  <div class="card fade-in" style="width:480px; max-width:92vw; box-shadow:var(--shadow-pop);">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-play" style="color:var(--accent-hover);"></i> Run Tests Against a URL</h3>
+      <span onclick="closeRunModal()" style="cursor:pointer; color:var(--text-tertiary);"><i class="fa-solid fa-xmark"></i></span>
+    </div>
+    <form method="POST" action="{{ url_for('run.execute') }}" id="runForm">
+      <div class="form-group">
+        <label class="form-label">Website URL</label>
+        <input type="text" name="url" class="form-control" value="https://{{ domain }}" required autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Browser</label>
+        <select name="browser" class="form-control">
+          <option value="chrome">Chrome</option>
+          <option value="firefox">Firefox</option>
+          <option value="edge">Edge</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Number of runs</label>
+        <input type="number" name="iterations" class="form-control" value="5" min="1" max="20">
+        <p class="form-hint">Flakiness needs several independent runs to compare — more runs = a more reliable score, but takes longer.</p>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="closeRunModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="runSubmitBtn"><i class="fa-solid fa-bolt"></i> Run Tests</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  function openRunModal() { document.getElementById('runModalOverlay').style.display = 'flex'; }
+  function closeRunModal() { document.getElementById('runModalOverlay').style.display = 'none'; }
+  document.getElementById('runForm').addEventListener('submit', function () {
+    var btn = document.getElementById('runSubmitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Running...';
+  });
+</script>
+{% endblock %}

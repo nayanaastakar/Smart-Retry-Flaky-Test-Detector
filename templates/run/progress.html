@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Run in progress{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title" id="jobTitle">{{ job.title }}</h1>
+    <p class="page-subtitle"><span id="jobStatusText">Starting…</span> &middot; updates every second</p>
+  </div>
+  <a href="{{ url_for('dashboard.index') }}" class="btn btn-ghost"><i class="fa-solid fa-gauge-high"></i> Dashboard</a>
+</div>
+
+<div class="card" style="margin-bottom:18px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <span class="mono" style="font-size:12px; color:var(--text-secondary);" id="progressLabel">0 / 0 checks</span>
+    <span class="mono" style="font-size:20px; font-weight:700;" id="percentLabel">0%</span>
+  </div>
+  <div class="progress-track" style="height:10px;"><div class="progress-fill" id="progressBar" style="width:0%; transition:width .4s ease;"></div></div>
+</div>
+
+<div class="card" style="padding:0; overflow:hidden;">
+  <div style="display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--border-subtle); background:var(--bg-surface-hover);">
+    <span class="mono" style="font-size:11.5px; color:var(--text-tertiary);">live execution log</span>
+    <span id="liveBadge" style="margin-left:auto; display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--status-running);">
+      <span class="pulse-dot" style="background:var(--status-running);"></span> RUNNING
+    </span>
+  </div>
+  <div id="log" class="mono" style="height:420px; overflow-y:auto; padding:16px; font-size:12.5px; line-height:1.7; background:var(--bg-canvas);"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const JOB_ID = {{ job.id | tojson }};
+  const COLORS = { info: 'var(--text-secondary)', success: 'var(--status-pass)', warn: 'var(--status-flaky)', error: 'var(--status-fail)' };
+  let lastEvent = 0, finished = false, failedPolls = 0;
+
+  function esc(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+  function addLine(ev) {
+    const div = document.createElement('div');
+    div.innerHTML = `<span style="color:var(--text-tertiary);">[${ev.ts}]</span> <span style="color:${COLORS[ev.level] || COLORS.info};">${esc(ev.message)}</span>`;
+    const log = document.getElementById('log');
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    // notifications for the events users care about
+    if (ev.level === 'warn' && ev.message.includes('retrying')) showToast('Retrying: ' + ev.message.split(':')[0], 'info');
+    else if (ev.level === 'success' && ev.message.includes(': PASS')) showToast(ev.message, 'success');
+    else if (ev.level === 'error' && ev.message.includes(': FAIL')) showToast(ev.message, 'error');
+  }
+
+  async function poll() {
+    if (finished) return;
+    try {
+      const res = await fetch(`/run/status/${JOB_ID}?since=${lastEvent}`);
+      if (res.status === 404) { setState('gone'); return; }
+      const data = await res.json();
+      failedPolls = 0;
+      (data.events || []).forEach(ev => { addLine(ev); lastEvent = Math.max(lastEvent, ev.id); });
+      document.getElementById('progressBar').style.width = data.percent + '%';
+      document.getElementById('percentLabel').textContent = data.percent + '%';
+      document.getElementById('progressLabel').textContent = `${data.done} / ${data.total} checks`;
+      document.getElementById('jobStatusText').textContent = data.status;
+      if (data.status === 'done') { setState('done', data.result_url); }
+      else if (data.status === 'error') { setState('error', null, data.error); }
+    } catch (e) {
+      if (++failedPolls > 5) setState('lost');
+    }
+  }
+
+  function setState(state, resultUrl, error) {
+    finished = true;
+    const badge = document.getElementById('liveBadge');
+    if (state === 'done') {
+      badge.innerHTML = 'COMPLETE'; badge.style.color = 'var(--status-pass)';
+      showToast('Run complete. Opening results…', 'success');
+      if (resultUrl) setTimeout(() => window.location = resultUrl, 1500);
+    } else if (state === 'error') {
+      badge.innerHTML = 'FAILED'; badge.style.color = 'var(--status-fail)';
+      showToast('Run failed: ' + (error || 'unknown error'), 'error', 8000);
+    } else {
+      badge.innerHTML = 'DISCONNECTED'; badge.style.color = 'var(--status-fail)';
+      document.getElementById('jobStatusText').textContent = 'lost connection to the server (job may have been cleared by a restart)';
+    }
+  }
+
+  showToast('Execution started', 'info');
+  poll();
+  setInterval(poll, 1000);
+</script>
+{% endblock %}

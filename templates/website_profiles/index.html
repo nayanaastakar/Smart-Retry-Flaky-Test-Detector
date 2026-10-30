@@ -1,5 +1,79 @@
-{% extends "base.html" %}{% block title %}Website Profiles{% endblock %}{% block page_title %}Website Profiles{% endblock %}
-{% block content %}<div class="card"><div class="card-body text-center py-5 text-muted">
-<i class="bi bi-globe2" style="font-size:3rem"></i>
-<p class="mt-2">Website Profiles are legacy. Use <a href="{{ url_for('projects.index') }}">Projects</a> instead.</p>
-</div></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Website Profiles{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Website Profiles</h1>
+    <p class="page-subtitle">{{ profiles|length }} profile(s) &middot; used by Quick Run and Test Cases to target a site.</p>
+  </div>
+  <a href="#" class="btn btn-primary" onclick="openProfileModal(); return false;"><i class="fa-solid fa-plus"></i> New Profile</a>
+</div>
+
+<div class="grid grid-3col">
+  {% for p in profiles %}
+  <div class="card">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+      <div class="kpi-icon" style="background:var(--accent-soft); color:var(--accent-hover); margin-bottom:0;">
+        <i class="fa-solid {{ p.icon }}"></i>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:700; font-size:14px;">{{ p.name }}</div>
+        <div class="mono" style="font-size:11px; color:var(--text-tertiary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ p.base_url }}</div>
+      </div>
+      {% if p.is_builtin %}<span class="badge" style="background:var(--bg-surface-hover); color:var(--text-tertiary);">Built-in</span>{% endif %}
+    </div>
+    <p style="font-size:12.5px; color:var(--text-secondary); min-height:34px;">{{ p.description or 'No description.' }}</p>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding-top:12px; border-top:1px solid var(--border-subtle);">
+      <span class="mono" style="font-size:11.5px; color:var(--text-tertiary);"><i class="fa-solid fa-vial"></i> {{ p.test_case_count }} test case(s)</span>
+      {% if not p.is_builtin %}
+      <form method="POST" action="{{ url_for('website_profiles.delete', profile_id=p.id) }}" onsubmit="return confirm('Delete this profile?');">
+        <button type="submit" class="btn btn-ghost" style="padding:5px 9px;"><i class="fa-solid fa-trash" style="color:var(--status-fail);"></i></button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div id="profileModalOverlay" style="display:none; position:fixed; inset:0; background:rgba(4,7,15,0.6); backdrop-filter:blur(3px); align-items:center; justify-content:center; z-index:1000;">
+  <div class="card fade-in" style="width:520px; max-width:92vw;">
+    <div class="card-header">
+      <h3 class="card-title"><i class="fa-solid fa-globe"></i> New Website Profile</h3>
+      <span onclick="closeProfileModal()" style="cursor:pointer; color:var(--text-tertiary);"><i class="fa-solid fa-xmark"></i></span>
+    </div>
+    <form method="POST" action="{{ url_for('website_profiles.create') }}">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input type="text" name="name" class="form-control" placeholder="My E-commerce Site" required autofocus>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Base URL</label>
+        <input type="text" name="base_url" class="form-control" placeholder="https://example.com" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Icon</label>
+        <select name="icon" class="form-control">
+          {% for icon in icon_choices %}<option value="{{ icon }}">{{ icon.replace('fa-','')|capitalize }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="2" placeholder="What this site is used for..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Config (JSON)</label>
+        <textarea name="config_json" class="form-control mono" rows="4" style="font-size:12px;" placeholder='{"login_url": "/login", "locators": {}}'>{}</textarea>
+        <p class="form-hint">Optional locators/credentials used by Page-Object tests targeting this profile.</p>
+      </div>
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button type="button" class="btn btn-ghost" onclick="closeProfileModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary"><i class="fa-solid fa-plus"></i> Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  function openProfileModal() { document.getElementById('profileModalOverlay').style.display = 'flex'; }
+  function closeProfileModal() { document.getElementById('profileModalOverlay').style.display = 'none'; }
+</script>
+{% endblock %}

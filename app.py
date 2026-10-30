@@ -1,12 +1,21 @@
-"""app.py - Application entry point."""
+"""
+app.py
+======
+Application entry point. Run with:
+
+    python app.py                 # normal start
+    python app.py --init-db       # (re)initialize schema + seed data, then start
+    flask --app app run           # alternative launch via Flask CLI
+
+The app factory pattern is used so tests can spin up isolated app instances.
+"""
+
 from __future__ import annotations
+
 import argparse
-import json
 import logging
-import os
 import sys
 from datetime import timedelta
-from pathlib import Path
 
 from flask import Flask, render_template
 
@@ -15,7 +24,6 @@ from database.db_manager import init_db
 
 
 def configure_logging() -> None:
-    settings.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=logging.DEBUG if settings.DEBUG else logging.INFO,
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -29,26 +37,13 @@ def configure_logging() -> None:
 def create_app() -> Flask:
     configure_logging()
     settings.ensure_directories()
-    init_db()
 
     app = Flask(__name__, static_folder="static", template_folder="templates")
     app.config["SECRET_KEY"] = settings.SECRET_KEY
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=settings.SESSION_LIFETIME_DAYS)
     app.config["JSON_SORT_KEYS"] = False
 
-    # Custom Jinja2 filters
-    @app.template_filter("from_json")
-    def from_json_filter(value):
-        try:
-            return json.loads(value) if value else []
-        except Exception:
-            return []
-
-    @app.template_filter("basename")
-    def basename_filter(value):
-        return Path(value).name if value else ""
-
-    # Blueprints
+    # --- Blueprints ------------------------------------------------------
     from routes.auth_routes import auth_bp
     from routes.dashboard_routes import dashboard_bp
     from routes.history_routes import history_bp
@@ -77,6 +72,7 @@ def create_app() -> Flask:
     app.register_blueprint(ai_analysis_bp)
     app.register_blueprint(projects_bp)
 
+    # --- Context processors ------------------------------------------------
     @app.context_processor
     def inject_globals():
         return {
@@ -84,6 +80,7 @@ def create_app() -> Flask:
             "app_name": settings.REPORT_LOGO_TEXT,
         }
 
+    # --- Error handlers ------------------------------------------------------
     @app.errorhandler(404)
     def not_found(e):
         return render_template("errors/404.html"), 404
@@ -98,13 +95,15 @@ def create_app() -> Flask:
 
 app = create_app()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--init-db", action="store_true")
+    parser.add_argument("--init-db", action="store_true", help="Initialize schema and seed default data")
     args = parser.parse_args()
 
     if args.init_db:
         from database.seed import run_all
+
         run_all()
 
     app.run(host=settings.HOST, port=settings.PORT, debug=settings.DEBUG)

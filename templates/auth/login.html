@@ -1,36 +1,98 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Login - SmartRetry</title>
-<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
-<style>body{background:#0f1117;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center}.card{background:#1a1d27;border:1px solid #2d3748;border-radius:14px;}.form-control{background:#0f1117;border-color:#374151;color:#e2e8f0}.form-control:focus{background:#0f1117;color:#e2e8f0;border-color:#7c3aed;box-shadow:0 0 0 .2rem rgba(124,58,237,.25)}</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in · {{ app_name }}</title>
+  <script>
+    (function () {
+      var saved = localStorage.getItem("smart-retry-theme") || "dark";
+      document.documentElement.setAttribute("data-theme", saved);
+    })();
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body { display: flex; min-height: 100vh; }
+    .auth-visual {
+      flex: 1.1;
+      background:
+        radial-gradient(circle at 20% 20%, rgba(99,102,241,0.35), transparent 55%),
+        radial-gradient(circle at 80% 70%, rgba(167,139,250,0.25), transparent 50%),
+        var(--bg-surface);
+      display: flex; flex-direction: column; justify-content: center; padding: 60px;
+      position: relative; overflow: hidden;
+    }
+    .auth-visual::before {
+      content: ''; position: absolute; inset: 0;
+      background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+      background-size: 42px 42px; opacity: 0.35;
+    }
+    .auth-visual-content { position: relative; z-index: 1; max-width: 440px; }
+    .stat-strip { display: flex; gap: 26px; margin-top: 40px; }
+    .stat-strip div strong { display: block; font-family: var(--font-mono); font-size: 22px; }
+    .stat-strip div span { font-size: 11.5px; color: var(--text-tertiary); }
+    .auth-form-panel { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
+    .auth-form-box { width: 100%; max-width: 380px; }
+  </style>
 </head>
 <body>
-<div class="card p-4" style="width:380px">
-  <div class="text-center mb-4">
-    <div style="font-size:2rem;color:#7c3aed">↺</div>
-    <h4 class="fw-bold">SmartRetry</h4>
-    <p class="text-muted small">Flaky Test Detection Framework</p>
+  <div class="auth-visual">
+    <div class="auth-visual-content fade-in">
+      <div class="brand-mark" style="margin-bottom:22px;">SR</div>
+      <h1 style="font-size:28px; font-weight:800; letter-spacing:-0.02em; margin:0 0 12px;">Smart Retry &amp; Flaky Test Detection</h1>
+      <p style="color:var(--text-secondary); font-size:14.5px; line-height:1.6;">
+        Automatic retries, AI-powered root cause analysis, and a live stability score
+        for every Selenium test in your suite.
+      </p>
+      <div class="stat-strip">
+        <div><strong class="mono">99.2%</strong><span>Uptime tracked</span></div>
+        <div><strong class="mono">3x</strong><span>Faster triage</span></div>
+        <div><strong class="mono">AI</strong><span>Root cause engine</span></div>
+      </div>
+    </div>
   </div>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, msg in messages %}
-    <div class="alert alert-danger">{{ msg }}</div>
-    {% endfor %}
-  {% endwith %}
-  <form method="POST">
-    <div class="mb-3">
-      <label class="form-label">Username</label>
-      <input type="text" name="username" class="form-control" required autofocus>
+
+  <div class="auth-form-panel">
+    <div class="auth-form-box fade-in">
+      <h2 style="font-size:21px; font-weight:800; margin:0 0 6px;">Welcome back</h2>
+      <p style="color:var(--text-secondary); font-size:13.5px; margin:0 0 26px;">Sign in to your QA workspace.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div style="background:var(--status-fail-soft); color:var(--status-fail); padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:16px;">
+              <i class="fa-solid fa-circle-exclamation"></i> {{ message }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="POST" action="{{ url_for('auth.login') }}">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" name="username" class="form-control" placeholder="admin" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" name="password" class="form-control" placeholder="••••••••" required>
+        </div>
+        <div class="form-group" style="display:flex; align-items:center; justify-content:space-between;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-secondary);">
+            <input type="checkbox" name="remember_me"> Remember me
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; padding:11px;">
+          Sign in <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </form>
+
+      <p style="font-size:11.5px; color:var(--text-tertiary); margin-top:22px; text-align:center;">
+        Default credentials: <span class="mono">admin</span> / <span class="mono">Admin@123</span>
+      </p>
     </div>
-    <div class="mb-3">
-      <label class="form-label">Password</label>
-      <input type="password" name="password" class="form-control" required>
-    </div>
-    <button type="submit" class="btn btn-primary w-100" style="background:#7c3aed;border-color:#7c3aed">Login</button>
-  </form>
-  <p class="text-center text-muted small mt-3">Default: admin / Admin@123</p>
-</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
 </body>
 </html>

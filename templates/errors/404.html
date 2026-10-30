@@ -1,2 +1,22 @@
-{% extends "base.html" %}{% block title %}404{% endblock %}{% block page_title %}Not Found{% endblock %}
-{% block content %}<div class="text-center py-5"><h1 class="display-1 text-muted">404</h1><p>Page not found. <a href="{{ url_for('dashboard.index') }}">Go home</a>.</p></div>{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 · Not Found</title>
+  <script>(function(){document.documentElement.setAttribute("data-theme", localStorage.getItem("smart-retry-theme")||"dark");})();</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body { display:flex; align-items:center; justify-content:center; min-height:100vh; text-align:center; }
+    .code { font-family: var(--font-mono); font-size:96px; font-weight:700; color: var(--accent); line-height:1; }
+  </style>
+</head>
+<body>
+  <div class="fade-in">
+    <div class="code">404</div>
+    <h2 style="margin:10px 0 8px;">This test route doesn't exist</h2>
+    <p style="color:var(--text-secondary); margin-bottom:22px;">Check the URL, or head back to the dashboard.</p>
+    <a href="/" class="btn btn-primary"><i class="fa-solid fa-house"></i> Back to Dashboard</a>
+  </div>
+</body>
+</html>

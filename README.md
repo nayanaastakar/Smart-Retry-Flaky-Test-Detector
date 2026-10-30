@@ -87,6 +87,41 @@ mile.
 
 ---
 
+## Recent changes (this round)
+
+- **Settings page now actually controls behaviour.** Retry count, retry delay,
+  default browser, headless mode, execution timeout and the AI on/off switch are
+  read from the database on every run (`services/settings_service.py`), with
+  `.env` / `config.py` only as the fallback. Changes apply on the next run, no restart.
+- **OS and browser version are stored** on every execution and shown on the detail page.
+- **Screenshots are visible**: shown on the execution detail page (served through a
+  path-traversal-safe route) and embedded as base64 in HTML reports, which also
+  gained a pass/flaky/fail breakdown bar.
+- **Runs are background jobs with live progress.** Quick Run, Run All Tests and
+  single-test runs return immediately and open `/run/progress/<id>`: a progress
+  bar with percentage, a colored auto-scrolling live log, and toast notifications
+  for started / retry / pass / fail / complete. When it finishes it opens the
+  results page. (`core/job_manager.py`)
+  - Jobs live in process memory. Run a single server process (the default
+    `python app.py` is fine). Multiple gunicorn workers would not share jobs.
+  - Restarting the server loses in-flight jobs; the page says so instead of hanging.
+- **Bug found and fixed by the new tests:** `run_project()` never returned its
+  summary (an earlier edit had dropped the `return`). It was invisible before
+  because that code path could not run without Selenium.
+
+### How this round was verified
+`_verify`-style tests stubbed **only** the Selenium layer (driver, step executor,
+generic checks) with a fake driver that writes real screenshot files. Everything
+else ran for real: routes, job manager, runners, retry engine, evidence collector,
+flaky detector, SQLite, report generation. That confirmed: stable / flaky
+(retried then passed) / failing outcomes are stored correctly, retry and
+pass/fail events stream to the status endpoint, progress reaches 100%, screenshots
+are captured, stored and served, a driver-start failure becomes a clear failed
+job instead of a crash, and Settings changes alter engine behaviour.
+**Still not verified: a real browser against a real website.** That needs your machine.
+
+---
+
 ## Quick start
 
 ```bash
@@ -160,18 +195,14 @@ Selenium script already has, no additional risk introduced.
 
 ## Roadmap (not yet built)
 
-- AI locator healing (suggesting a fixed locator when one breaks)
-- Drag-and-drop step reordering (currently up/down buttons -- functional,
-  less flashy)
-- File upload/download steps, execution video recording, network log capture
-- SQLAlchemy ORM migration (currently raw parameterized SQL, which is
-  simpler and sufficient at this scale but doesn't match the reference
-  spec's tech stack ask)
-- JWT-based auth, registration, forgot-password (currently server-side
-  session auth, which is simpler and safer for a self-hosted tool)
-- Swagger/OpenAPI documentation for the REST API
-- Marketing-style landing page with pricing cards/testimonials
-- True push-based Live Console (WebSocket/SSE) instead of 2s polling
-- Parallel test execution across multiple projects/browsers at once
-
-Say which of these matters most and it's next.
+- AI locator healing (suggest a replacement locator when one breaks)
+- Test import/export, run-to-run comparison view
+- Separate per-project pages for History / Reports / Analytics / AI / Evidence
+- Heatmap and area charts; execution video; network logs; DOM snapshot sent to the AI
+- Parallel execution
+- Drag-and-drop step reordering (up/down arrows work today)
+- Notification centre (toasts exist; no persistent inbox)
+- SQLAlchemy ORM, JWT auth, registration / forgot-password, Swagger docs
+- Marketing landing page
+- Page-object-model sample test suite under `pages/` and `tests/` (empty today)
+- Shared job store (Redis/DB) for multi-worker deployments

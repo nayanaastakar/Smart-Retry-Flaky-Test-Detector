@@ -1,19 +1,74 @@
-{% extends "base.html" %}{% block title %}Live Console{% endblock %}{% block page_title %}Live Console{% endblock %}
+{% extends "base.html" %}
+{% block title %}Live Console{% endblock %}
 {% block content %}
-<div class="card"><div class="card-header">Live Execution Console</div>
-<div class="card-body" style="background:#0a0a0f;border-radius:6px;min-height:400px">
-<pre class="text-success mb-0" id="console">Waiting for execution... Run a test from Projects to see live output.</pre>
-</div></div>
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Live Console</h1>
+    <p class="page-subtitle">Streaming retry attempts as they're recorded &middot; polls every 2s</p>
+  </div>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <label style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-secondary);">
+      <input type="checkbox" id="autoScrollToggle" checked> Auto-scroll
+    </label>
+    <button class="btn btn-ghost" onclick="clearConsole()"><i class="fa-solid fa-broom"></i> Clear</button>
+  </div>
+</div>
+
+<div class="card" style="padding:0; overflow:hidden;">
+  <div style="display:flex; align-items:center; gap:8px; padding:12px 16px; border-bottom:1px solid var(--border-subtle); background:var(--bg-surface-hover);">
+    <span style="width:10px;height:10px;border-radius:50%;background:var(--status-fail);"></span>
+    <span style="width:10px;height:10px;border-radius:50%;background:var(--status-flaky);"></span>
+    <span style="width:10px;height:10px;border-radius:50%;background:var(--status-pass);"></span>
+    <span style="margin-left:8px; font-family:var(--font-mono); font-size:11.5px; color:var(--text-tertiary);">smart-retry — live tail</span>
+    <span id="liveIndicator" style="margin-left:auto; display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--status-pass);">
+      <span class="pulse-dot"></span> LIVE
+    </span>
+  </div>
+  <div id="consoleOutput" class="mono" style="height:520px; overflow-y:auto; padding:16px; font-size:12.5px; line-height:1.7; background:var(--bg-canvas);"></div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
 <script>
-function poll() {
-  fetch('/api/v1/executions').then(r=>r.json()).then(data=>{
-    if(data.length>0){
-      const latest = data[0];
-      document.getElementById('console').textContent = latest.log_output || 'No log output available.';
+  let lastId = 0;
+  const output = document.getElementById('consoleOutput');
+  const autoScrollToggle = document.getElementById('autoScrollToggle');
+
+  const STATUS_COLOR = { PASS: 'var(--status-pass)', FAIL: 'var(--status-fail)' };
+
+  function clearConsole() { output.innerHTML = ''; }
+
+  function renderLine(line) {
+    const color = STATUS_COLOR[line.status] || 'var(--text-secondary)';
+    const div = document.createElement('div');
+    div.style.marginBottom = '4px';
+    div.innerHTML = `<span style="color:var(--text-tertiary);">[${line.timestamp}]</span> ` +
+      `<span style="color:var(--accent-hover); font-weight:600;">${line.test_name}</span> ` +
+      `<span style="color:var(--text-tertiary);">(${line.module})</span> ` +
+      `attempt <span style="color:var(--text-primary);">#${line.attempt_number}</span> → ` +
+      `<span style="color:${color}; font-weight:700;">${line.status}</span> ` +
+      `<span style="color:var(--text-tertiary);">${line.duration_ms}ms</span>` +
+      (line.error_message ? `<div style="color:var(--status-fail); margin-left:20px; opacity:0.85;">↳ ${line.error_message}</div>` : '');
+    output.appendChild(div);
+  }
+
+  async function poll() {
+    try {
+      const res = await fetch(`/console/tail?since_id=${lastId}&limit=100`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.lines && data.lines.length) {
+        data.lines.forEach(renderLine);
+        lastId = data.last_id;
+        if (autoScrollToggle.checked) output.scrollTop = output.scrollHeight;
+      }
+    } catch (err) {
+      document.getElementById('liveIndicator').style.color = 'var(--status-fail)';
     }
-  }).catch(()=>{});
-  setTimeout(poll, 2000);
-}
-poll();
+  }
+
+  poll();
+  setInterval(poll, 2000);
 </script>
 {% endblock %}

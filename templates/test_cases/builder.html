@@ -1,145 +1,202 @@
 {% extends "base.html" %}
 {% block title %}{{ 'Edit' if test_case else 'New' }} Test Case{% endblock %}
-{% block page_title %}{{ 'Edit' if test_case else 'New' }} Test Case{% endblock %}
-{% block extra_head %}
-<style>
-.step-card{background:#0f1117;border:1px solid #374151;border-radius:8px;padding:1rem;margin-bottom:.75rem}
-.step-num{background:#7c3aed;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:700;flex-shrink:0}
-</style>
-{% endblock %}
 {% block content %}
-<div class="d-flex gap-2 mb-3">
-  <a href="{{ url_for('projects.detail', project_id=project.id) }}" class="btn btn-outline-secondary">← Back</a>
+<div class="page-header">
+  <div>
+    <h1 class="page-title">{{ 'Edit Test Case' if test_case else 'New Test Case' }}</h1>
+    <p class="page-subtitle">
+      {% if project %}For project <strong>{{ project.name }}</strong> ({{ project.url }}){% else %}Standalone test case{% endif %}
+      &middot; build steps that run against any page on this site
+    </p>
+  </div>
+  {% if project %}<a href="{{ url_for('projects.detail', project_id=project.id) }}" class="btn btn-ghost"><i class="fa-solid fa-arrow-left"></i> Back to Project</a>{% endif %}
 </div>
-<form method="POST" id="testForm">
-<input type="hidden" name="steps_json" id="stepsJson">
-<div class="row g-3">
-  <div class="col-md-8">
-    <div class="card mb-3">
-      <div class="card-header">Test Details</div>
-      <div class="card-body">
-        <div class="row g-2">
-          <div class="col-md-6">
-            <label class="form-label">Test Name</label>
-            <input type="text" name="name" class="form-control" required value="{{ test_case.name if test_case else '' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Module</label>
-            <input type="text" name="module" class="form-control" value="{{ test_case.module if test_case else 'General' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Group</label>
-            <input type="text" name="group_name" class="form-control" value="{{ test_case.group_name if test_case else 'Default' }}">
-          </div>
-        </div>
+
+<form method="POST" action="{{ url_for('test_cases.update', test_id=test_case.id) if test_case else url_for('projects.create_test_case', project_id=project.id) }}" id="builderForm">
+  <div class="grid grid-2col" style="margin-bottom:18px;">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Details</h3></div>
+      <div class="form-group">
+        <label class="form-label">Test Case Name</label>
+        <input type="text" name="name" class="form-control" placeholder="Login with valid credentials" required
+          value="{{ test_case.name if test_case else '' }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="2">{{ test_case.description if test_case else '' }}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Group</label>
+        <input type="text" name="group_name" class="form-control" placeholder="default" value="{{ test_case.group_name if test_case else 'default' }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tags (comma-separated)</label>
+        <input type="text" name="tags" class="form-control" placeholder="smoke, login"
+          value="{{ (test_case.tags_list if test_case else [])|join(', ') if test_case else '' }}">
       </div>
     </div>
     <div class="card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <span>Steps</span>
-        <button type="button" class="btn btn-sm btn-purple" onclick="addStep()"><i class="bi bi-plus"></i> Add Step</button>
-      </div>
-      <div class="card-body" id="stepsContainer">
-        <div id="noSteps" class="text-center py-3 text-muted">No steps yet. Click "Add Step" to begin.</div>
+      <div class="card-header"><h3 class="card-title">Available Step Types</h3></div>
+      <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:10px;">
+        Click "Add Step" below to append any of these to your sequence. Locator types supported: {{ locator_types|join(', ') }}.
+      </p>
+      <div style="display:flex; flex-wrap:wrap; gap:6px;">
+        {% for action in step_actions %}
+        <span class="badge" style="background:var(--accent-soft); color:var(--accent-hover);">{{ action.label }}</span>
+        {% endfor %}
       </div>
     </div>
   </div>
-  <div class="col-md-4">
-    <div class="card mb-3">
-      <div class="card-header">Add Step</div>
-      <div class="card-body">
-        <div class="mb-2">
-          <label class="form-label small">Action</label>
-          <select class="form-select form-select-sm" id="newAction" onchange="toggleLocator()">
-            {% for st in step_types %}
-            <option value="{{ st.id }}" data-needs-locator="{{ 'true' if st.needs_locator else 'false' }}" data-needs-input="{{ 'true' if st.needs_input else 'false' }}">{{ st.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div id="locatorFields">
-          <div class="mb-2">
-            <label class="form-label small">Locator Type</label>
-            <select class="form-select form-select-sm" id="newLocatorType">
-              {% for lt in locator_types %}<option value="{{ lt }}">{{ lt }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="mb-2">
-            <label class="form-label small">Locator Value</label>
-            <input type="text" class="form-control form-control-sm" id="newLocatorValue" placeholder="e.g. user-name">
-          </div>
-        </div>
-        <div id="inputField" class="mb-2">
-          <label class="form-label small">Input Value</label>
-          <input type="text" class="form-control form-control-sm" id="newInputValue" placeholder="Value">
-        </div>
-        <div class="mb-2">
-          <label class="form-label small">Timeout (sec)</label>
-          <input type="number" class="form-control form-control-sm" id="newTimeout" value="10" min="1" max="60">
-        </div>
-        <button type="button" class="btn btn-sm btn-purple w-100" onclick="addStep()"><i class="bi bi-plus"></i> Add Step</button>
-      </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title">Steps</h3>
+      <button type="button" class="btn btn-primary" onclick="addStepRow()" style="padding:8px 14px; font-size:12.5px;">
+        <i class="fa-solid fa-plus"></i> Add Step
+      </button>
     </div>
-    <button type="submit" class="btn btn-success w-100" onclick="submitForm()"><i class="bi bi-save"></i> Save Test Case</button>
+    <div id="stepsContainer"></div>
+    <div id="emptyStepsMsg" class="empty-state" style="display:none;">
+      <i class="fa-solid fa-list-ol"></i><p>No steps yet. Click "Add Step" to start building this test.</p>
+    </div>
   </div>
-</div>
+
+  <input type="hidden" name="steps_json" id="stepsJsonInput">
+
+  <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px;">
+    {% if project %}<a href="{{ url_for('projects.detail', project_id=project.id) }}" class="btn btn-ghost">Cancel</a>{% endif %}
+    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save Test Case</button>
+  </div>
 </form>
 
+{% endblock %}
+
+{% block extra_scripts %}
 <script>
-const STEP_TYPES = {{ step_types|tojson }};
-let steps = {{ steps_list|tojson if steps_list is defined and steps_list else '[]' }};
+  const STEP_ACTIONS = {{ step_actions | tojson }};
+  const LOCATOR_TYPES = {{ locator_types | tojson }};
+  const EXISTING_STEPS = {{ (test_case.steps_list if test_case else []) | tojson }};
 
-function toggleLocator() {
-  const sel = document.getElementById('newAction');
-  const opt = sel.options[sel.selectedIndex];
-  const needsLoc = opt.dataset.needsLocator === 'true';
-  const needsInput = opt.dataset.needsInput === 'true';
-  document.getElementById('locatorFields').style.display = needsLoc ? '' : 'none';
-  document.getElementById('inputField').style.display = needsInput ? '' : 'none';
-}
+  let stepCounter = 0;
+  const container = document.getElementById('stepsContainer');
+  const emptyMsg = document.getElementById('emptyStepsMsg');
 
-function addStep() {
-  const action = document.getElementById('newAction').value;
-  const locatorType = document.getElementById('newLocatorType').value;
-  const locatorValue = document.getElementById('newLocatorValue').value.trim();
-  const inputValue = document.getElementById('newInputValue').value.trim();
-  const timeout = parseInt(document.getElementById('newTimeout').value) || 10;
-  steps.push({ action, locator_type: locatorType, locator_value: locatorValue, input_value: inputValue, timeout });
-  renderSteps();
-  document.getElementById('newLocatorValue').value = '';
-  document.getElementById('newInputValue').value = '';
-}
+  function actionMeta(key) { return STEP_ACTIONS.find(a => a.key === key) || STEP_ACTIONS[0]; }
 
-function removeStep(i) { steps.splice(i, 1); renderSteps(); }
-function moveUp(i) { if(i>0){[steps[i-1],steps[i]]=[steps[i],steps[i-1]]; renderSteps();} }
-function moveDown(i) { if(i<steps.length-1){[steps[i],steps[i+1]]=[steps[i+1],steps[i]]; renderSteps();} }
+  function updateEmptyState() {
+    emptyMsg.style.display = container.children.length ? 'none' : 'block';
+  }
 
-function renderSteps() {
-  const c = document.getElementById('stepsContainer');
-  document.getElementById('noSteps').style.display = steps.length ? 'none' : '';
-  const existing = c.querySelectorAll('.step-card');
-  existing.forEach(e => e.remove());
-  steps.forEach((s, i) => {
-    const d = document.createElement('div');
-    d.className = 'step-card d-flex gap-2 align-items-start';
-    const label = STEP_TYPES.find(t => t.id === s.action)?.label || s.action;
-    d.innerHTML = `<div class="step-num">${i+1}</div>
-      <div class="flex-grow-1">
-        <strong>${label}</strong>
-        ${s.locator_value ? `<span class="badge bg-secondary ms-1">${s.locator_type}=${s.locator_value}</span>` : ''}
-        ${s.input_value ? `<span class="badge bg-dark ms-1">"${s.input_value}"</span>` : ''}
+  function refreshRowVisibility(row) {
+    const action = row.querySelector('.step-action').value;
+    const meta = actionMeta(action);
+    row.querySelector('.locator-fields').style.display = meta.needs_locator ? 'flex' : 'none';
+    const inputField = row.querySelector('.input-field-wrap');
+    inputField.style.display = meta.needs_input ? 'block' : 'none';
+    inputField.querySelector('label').textContent = meta.input_label || 'Value';
+    row.querySelector('.timeout-field-wrap').style.display = meta.needs_timeout ? 'block' : 'none';
+  }
+
+  function addStepRow(existing) {
+    stepCounter += 1;
+    const idx = stepCounter;
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.dataset.index = idx;
+    row.style.cssText = 'border:1px solid var(--border-subtle); border-radius:10px; padding:14px; margin-bottom:12px; background:var(--bg-surface-hover);';
+
+    const actionOptions = STEP_ACTIONS.map(a =>
+      `<option value="${a.key}" ${existing && existing.action === a.key ? 'selected' : ''}>${a.label}</option>`
+    ).join('');
+    const locatorOptions = LOCATOR_TYPES.map(t =>
+      `<option value="${t}" ${existing && existing.locator_type === t ? 'selected' : ''}>${t}</option>`
+    ).join('');
+
+    row.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <span class="mono" style="font-size:11.5px; color:var(--text-tertiary);">STEP ${idx}</span>
+        <div style="display:flex; gap:6px;">
+          <button type="button" class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="moveStep(this, -1)"><i class="fa-solid fa-arrow-up"></i></button>
+          <button type="button" class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="moveStep(this, 1)"><i class="fa-solid fa-arrow-down"></i></button>
+          <button type="button" class="btn btn-ghost" style="padding:4px 8px; font-size:11px;" onclick="removeStep(this)"><i class="fa-solid fa-trash" style="color:var(--status-fail);"></i></button>
+        </div>
       </div>
-      <div class="d-flex gap-1">
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="moveUp(${i})">↑</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="moveDown(${i})">↓</button>
-        <button type="button" class="btn btn-sm btn-outline-danger py-0" onclick="removeStep(${i})">×</button>
-      </div>`;
-    c.appendChild(d);
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:180px;">
+          <label class="form-label">Action</label>
+          <select class="form-control step-action">${actionOptions}</select>
+        </div>
+        <div class="locator-fields" style="display:flex; gap:10px; flex:2; min-width:280px;">
+          <div style="flex:1;">
+            <label class="form-label">Locator Type</label>
+            <select class="form-control step-locator-type">${locatorOptions}</select>
+          </div>
+          <div style="flex:2;">
+            <label class="form-label">Locator Value</label>
+            <input type="text" class="form-control step-locator-value" placeholder="#submit-btn" value="${existing && existing.locator_value ? existing.locator_value.replace(/"/g,'&quot;') : ''}">
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+        <div class="input-field-wrap" style="flex:2; min-width:240px;">
+          <label class="form-label">Value</label>
+          <input type="text" class="form-control step-input-value" value="${existing && existing.input_value ? String(existing.input_value).replace(/"/g,'&quot;') : ''}">
+        </div>
+        <div class="timeout-field-wrap" style="width:120px;">
+          <label class="form-label">Timeout (s)</label>
+          <input type="number" class="form-control step-timeout" value="${existing && existing.timeout ? existing.timeout : 10}">
+        </div>
+        <div style="flex:2; min-width:200px;">
+          <label class="form-label">Description (optional)</label>
+          <input type="text" class="form-control step-description" placeholder="What this step does" value="${existing && existing.description ? existing.description.replace(/"/g,'&quot;') : ''}">
+        </div>
+      </div>
+    `;
+    container.appendChild(row);
+    row.querySelector('.step-action').value = existing ? existing.action : STEP_ACTIONS[0].key;
+    row.querySelector('.step-action').addEventListener('change', () => refreshRowVisibility(row));
+    refreshRowVisibility(row);
+    updateEmptyState();
+  }
+
+  function moveStep(btn, direction) {
+    const row = btn.closest('.step-row');
+    if (direction < 0 && row.previousElementSibling) {
+      container.insertBefore(row, row.previousElementSibling);
+    } else if (direction > 0 && row.nextElementSibling) {
+      container.insertBefore(row.nextElementSibling, row);
+    }
+  }
+
+  function removeStep(btn) {
+    btn.closest('.step-row').remove();
+    updateEmptyState();
+  }
+
+  document.getElementById('builderForm').addEventListener('submit', function (e) {
+    const steps = [];
+    container.querySelectorAll('.step-row').forEach(row => {
+      steps.push({
+        action: row.querySelector('.step-action').value,
+        locator_type: row.querySelector('.step-locator-type').value,
+        locator_value: row.querySelector('.step-locator-value').value || null,
+        input_value: row.querySelector('.step-input-value').value || null,
+        timeout: parseInt(row.querySelector('.step-timeout').value, 10) || 10,
+        description: row.querySelector('.step-description').value || null,
+      });
+    });
+    if (steps.length === 0) {
+      e.preventDefault();
+      alert('Add at least one step before saving.');
+      return;
+    }
+    document.getElementById('stepsJsonInput').value = JSON.stringify(steps);
   });
-}
 
-function submitForm() { document.getElementById('stepsJson').value = JSON.stringify(steps); }
-
-toggleLocator();
-renderSteps();
+  if (EXISTING_STEPS && EXISTING_STEPS.length) {
+    EXISTING_STEPS.forEach(step => addStepRow(step));
+  } else {
+    updateEmptyState();
+  }
 </script>
 {% endblock %}

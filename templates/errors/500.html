@@ -1,2 +1,22 @@
-{% extends "base.html" %}{% block title %}500{% endblock %}{% block page_title %}Server Error{% endblock %}
-{% block content %}<div class="text-center py-5"><h1 class="display-1 text-danger">500</h1><p>Something went wrong. Check the logs.</p></div>{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>500 · Server Error</title>
+  <script>(function(){document.documentElement.setAttribute("data-theme", localStorage.getItem("smart-retry-theme")||"dark");})();</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body { display:flex; align-items:center; justify-content:center; min-height:100vh; text-align:center; }
+    .code { font-family: var(--font-mono); font-size:96px; font-weight:700; color: var(--status-fail); line-height:1; }
+  </style>
+</head>
+<body>
+  <div class="fade-in">
+    <div class="code">500</div>
+    <h2 style="margin:10px 0 8px;">Something broke on our end</h2>
+    <p style="color:var(--text-secondary); margin-bottom:22px;">The error has been logged. Try again in a moment.</p>
+    <a href="/" class="btn btn-primary"><i class="fa-solid fa-house"></i> Back to Dashboard</a>
+  </div>
+</body>
+</html>
