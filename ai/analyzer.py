@@ -92,6 +92,14 @@ class AIFailureAnalyzer:
         execution = fetch_one("SELECT * FROM executions WHERE id = ?", (execution_id,))
         exc_type = (execution["exception_type"] or "").lower()
 
+        # Also scan the exception_message for Selenium exception keywords in case
+        # the exception_type field stores the outer wrapper class (e.g. FakeException
+        # in demo data) while the real Selenium class name is embedded in the message.
+        exc_msg = (execution["exception_message"] or "").lower()
+
+        def _matches_key(key: str) -> bool:
+            return key in exc_type or key in exc_msg
+
         rules = {
             "timeoutexception": {
                 "root_cause": "The test waited for an element/condition that did not appear within the configured timeout.",
@@ -127,22 +135,31 @@ class AIFailureAnalyzer:
             },
         }
 
-        rule = rules.get(exc_type, {
-            "root_cause": "Failure pattern does not match a known heuristic category; manual triage recommended.",
-            "possible_reason": "Insufficient signal to classify automatically without a language model.",
-            "recommended_fix": "Review the stack trace and screenshot manually, or enable the Ollama-backed AI analysis for deeper reasoning.",
-            "prevention": "Add more specific exception handling/logging around this test step to improve future auto-classification.",
-            "suggested_code": "# Add targeted logging around the failing step to capture more context next run.",
-            "severity": "LOW",
-        })
+        # Priority: exact exception_type match, then keyword scan of message
+        matched_rule = None
+        for key, candidate in rules.items():
+            if _matches_key(key):
+                matched_rule = candidate
+                break
 
+        rule = matched_rule or {
+            "root_cause": "An unexpected test failure occurred that does not match a catalogued Selenium exception pattern.",
+            "possible_reason": "The failure may be caused by an application-side error, an environment issue, or a test data dependency that was not met.",
+            "recommended_fix": "Review the execution stack trace and any captured screenshots to identify the specific failure point. Enable Ollama AI analysis for deeper automated reasoning.",
+            "prevention": "Add targeted try/except blocks around critical test steps to capture richer diagnostic context. Consider adding assertion messages to pinpoint failures precisely.",
+            "suggested_code": "# Wrap the failing step with structured error capture:\ntry:\n    element = WebDriverWait(driver, 10).until(\n        EC.element_to_be_clickable((By.CSS_SELECTOR, 'YOUR_LOCATOR'))\n    )\n    element.click()\nexcept Exception as e:\n    driver.save_screenshot('failure_evidence.png')\n    raise",
+            "severity": "MEDIUM",
+        }
+
+        # Confidence is higher for known Selenium patterns, lower for generic fallback
+        confidence = 0.78 if matched_rule else 0.45
         analysis = {
             "root_cause": rule["root_cause"],
             "severity": rule["severity"],
             "possible_reason": rule["possible_reason"],
             "recommended_fix": rule["recommended_fix"],
             "prevention": rule["prevention"],
-            "confidence_score": 0.55,
+            "confidence_score": confidence,
             "suggested_code": rule["suggested_code"],
             "raw_model_output": "(heuristic fallback - Ollama unreachable, no model was called)",
         }

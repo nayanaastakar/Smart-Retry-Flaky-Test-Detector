@@ -46,16 +46,22 @@ class FakeException(Exception):
     pass
 
 
-def _simulated_test(pass_probability: float):
+# Map each test to a realistic Selenium exception type for meaningful AI triage
+_EXCEPTION_POOL = [
+    ("TimeoutException", "TimeoutException: element not visible after 10s wait"),
+    ("NoSuchElementException", "NoSuchElementException: locator did not match any elements"),
+    ("ElementClickInterceptedException", "ElementClickInterceptedException: element not clickable at point"),
+    ("StaleElementReferenceException", "StaleElementReferenceException: element is no longer attached to DOM"),
+]
+
+
+def _simulated_test(pass_probability: float, exc_index: int = 0):
+    exc_type, exc_msg = _EXCEPTION_POOL[exc_index % len(_EXCEPTION_POOL)]
+
     def _run():
         if random.random() > pass_probability:
-            raise FakeException(random.choice([
-                "ElementClickInterceptedException: element not clickable at point",
-                "TimeoutException: element not visible after 10s wait",
-                "NoSuchElementException: locator did not match any elements",
-                "StaleElementReferenceException: element is no longer attached to DOM",
-            ]))
-    return _run
+            raise FakeException(exc_msg)
+    return _run, exc_type, exc_msg
 
 
 def generate(num_runs_per_test: int = 15) -> None:
@@ -63,15 +69,22 @@ def generate(num_runs_per_test: int = 15) -> None:
     seed_all()
     engine = SmartRetryEngine(max_retries=2, retry_delay=0.0)  # no real sleep for demo speed
 
-    for test_name, module, prob in TEST_PROFILES:
+    for idx, (test_name, module, prob) in enumerate(TEST_PROFILES):
+        test_fn, exc_type, exc_msg = _simulated_test(prob, exc_index=idx)
         for i in range(num_runs_per_test):
             result = engine.run(
-                _simulated_test(prob),
+                test_fn,
                 test_name=test_name,
                 module=module,
                 browser=random.choice(["chrome", "chrome", "firefox", "edge"]),
                 os_name=random.choice(["Windows 11", "macOS 14", "Ubuntu 22.04"]),
             )
+            # Store the realistic Selenium exception type on FAIL/FLAKY executions
+            if result.status.value in ("FAIL", "FLAKY"):
+                execute(
+                    "UPDATE executions SET exception_type = ?, exception_message = ? WHERE id = ?",
+                    (exc_type, exc_msg, result.execution_db_id),
+                )
             # Backdate the execution timestamp so the trend charts have spread
             days_ago = random.randint(0, 13)
             backdated = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
