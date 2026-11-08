@@ -35,6 +35,7 @@
 
 <div class="card">
   {% if test_cases %}
+  <div class="table-responsive">
   <table class="data-table">
     <thead><tr><th>Name</th><th>Module</th><th>Group</th><th>Tags</th><th>Website</th><th>Status</th><th></th></tr></thead>
     <tbody>
@@ -74,6 +75,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
     <div class="empty-state"><i class="fa-solid fa-vial"></i><p>No test cases yet. Create your first one to start organizing your suite.</p></div>
   {% endif %}

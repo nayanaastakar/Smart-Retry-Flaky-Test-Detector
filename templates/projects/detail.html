@@ -24,6 +24,7 @@
   <div class="card">
     <div class="card-header"><h3 class="card-title">Test Cases ({{ test_cases|length }})</h3></div>
     {% if test_cases %}
+    <div class="table-responsive">
     <table class="data-table">
       <thead><tr><th>Name</th><th>Steps</th><th>Status</th><th></th></tr></thead>
       <tbody>
@@ -48,6 +49,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
       <div class="empty-state"><i class="fa-solid fa-vial"></i><p>No test cases yet. Click "New Test Case" to build one with the visual step editor.</p></div>
     {% endif %}
@@ -79,6 +81,7 @@
     <a href="{{ url_for('history.index', module=project.name) }}" class="btn btn-ghost" style="padding:6px 12px; font-size:12px;">View all</a>
   </div>
   {% if recent_executions %}
+  <div class="table-responsive">
   <table class="data-table">
     <thead><tr><th>Test</th><th>Status</th><th>Attempts</th><th>Duration</th><th>When</th></tr></thead>
     <tbody>
@@ -97,6 +100,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
     <div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No runs yet for this project.</p></div>
   {% endif %}

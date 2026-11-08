@@ -31,6 +31,7 @@
 
 <div class="card">
   {% if analyses %}
+  <div class="table-responsive">
   <table class="data-table">
     <thead><tr><th>Test</th><th>Module</th><th>Severity</th><th>Root Cause</th><th>Confidence</th><th>Model</th><th></th></tr></thead>
     <tbody>
@@ -56,6 +57,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
     <div class="empty-state"><i class="fa-solid fa-brain"></i><p>No AI analyses yet. Click "Analyze Next" to process FAIL/FLAKY executions, or run one from an execution's detail page.</p></div>
   {% endif %}

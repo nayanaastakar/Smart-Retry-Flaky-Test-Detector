@@ -39,6 +39,7 @@
 
 <div class="card">
   {% if executions %}
+  <div class="table-responsive">
   <table class="data-table">
     <thead>
       <tr>
@@ -76,6 +77,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
     <div class="empty-state"><i class="fa-solid fa-magnifying-glass"></i><p>No executions match these filters.</p></div>
   {% endif %}

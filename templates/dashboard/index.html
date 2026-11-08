@@ -174,6 +174,7 @@
       <a href="{{ url_for('history.index') }}" class="btn btn-ghost" style="padding:6px 12px; font-size:12px;">View all</a>
     </div>
     {% if recent_executions %}
+    <div class="table-responsive">
     <table class="data-table">
       <thead><tr><th>Test</th><th>Module</th><th>Status</th><th>Attempts</th><th>Duration</th></tr></thead>
       <tbody>
@@ -193,6 +194,7 @@
         {% endfor %}
       </tbody>
     </table>
+    </div>
     {% else %}
       <div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No executions recorded yet. Run your first test to populate the dashboard.</p></div>
     {% endif %}

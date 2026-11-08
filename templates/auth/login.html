@@ -34,6 +34,13 @@
     .stat-strip div span { font-size: 11.5px; color: var(--text-tertiary); }
     .auth-form-panel { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; }
     .auth-form-box { width: 100%; max-width: 380px; }
+
+    /* Mobile: hide decorative panel, center form */
+    @media (max-width: 700px) {
+      body { flex-direction: column; }
+      .auth-visual { display: none; }
+      .auth-form-panel { padding: 32px 20px; min-height: 100vh; align-items: flex-start; padding-top: 60px; }
+    }
   </style>
 </head>
 <body>

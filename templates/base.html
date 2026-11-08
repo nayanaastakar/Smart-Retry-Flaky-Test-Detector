@@ -21,8 +21,11 @@
 </head>
 <body class="page-{{ active_page|default('generic') }}">
 
+  <!-- Mobile sidebar overlay (click to close) -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
   <div class="app-shell">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-mark">SR</div>
         <div class="brand-text">
@@ -77,6 +80,11 @@
 
     <div class="main-col">
       <header class="topbar">
+        <!-- Hamburger: only visible on tablet/mobile -->
+        <button class="nav-hamburger" id="navHamburger" aria-label="Open navigation">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+
         <div class="topbar-search">
           <i class="fa-solid fa-magnifying-glass"></i>
           <input type="text" placeholder="Search tests, runs, reports..." onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true}))" readonly>
@@ -84,7 +92,7 @@
         </div>
         <div class="topbar-actions">
           <div class="theme-toggle" id="themeToggle" title="Toggle theme"></div>
-          <a href="{{ url_for('auth.logout') }}" class="btn btn-ghost" style="padding:8px 12px;">
+          <a href="{{ url_for('auth.logout') }}" class="btn btn-ghost" style="padding:8px 12px;" title="Logout">
             <i class="fa-solid fa-right-from-bracket"></i>
           </a>
           <a href="{{ url_for('profile.index') }}" class="avatar" style="background:{{ session.get('avatar_color','#6366F1') }}">
@@ -109,6 +117,50 @@
 
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+  <!-- Mobile sidebar / hamburger logic -->
+  <script>
+    (function () {
+      var sidebar  = document.getElementById('sidebar');
+      var overlay  = document.getElementById('sidebarOverlay');
+      var hamburger = document.getElementById('navHamburger');
+
+      function openSidebar() {
+        sidebar.classList.add('open');
+        overlay.classList.add('open');
+        hamburger.setAttribute('aria-expanded', 'true');
+        hamburger.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+        document.body.style.overflow = 'hidden'; // prevent scroll behind drawer
+      }
+
+      function closeSidebar() {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('open');
+        hamburger.setAttribute('aria-expanded', 'false');
+        hamburger.innerHTML = '<i class="fa-solid fa-bars"></i>';
+        document.body.style.overflow = '';
+      }
+
+      hamburger.addEventListener('click', function () {
+        sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+      });
+
+      overlay.addEventListener('click', closeSidebar);
+
+      // Close drawer on nav-link click (navigating to a new page)
+      sidebar.querySelectorAll('.nav-link').forEach(function (link) {
+        link.addEventListener('click', function () {
+          if (window.innerWidth < 900) closeSidebar();
+        });
+      });
+
+      // Close on ESC
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeSidebar();
+      });
+    })();
+  </script>
+
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

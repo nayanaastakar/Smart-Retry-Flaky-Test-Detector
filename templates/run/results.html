@@ -37,6 +37,7 @@
 <div class="card" style="margin-bottom:18px;">
   <div class="card-header"><h3 class="card-title">Per-Check Stability</h3></div>
   {% if checks %}
+  <div class="table-responsive">
   <table class="data-table">
     <thead><tr><th>Check</th><th>Runs</th><th>Pass</th><th>Fail</th><th>Flips</th><th>Flaky Score</th><th>Classification</th></tr></thead>
     <tbody>
@@ -64,6 +65,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
     <div class="empty-state"><i class="fa-solid fa-magnifying-glass"></i><p>No scored checks yet.</p></div>
   {% endif %}
@@ -75,6 +77,7 @@
     <h3 class="card-title">Recent Runs</h3>
     <a href="#" class="btn btn-primary" onclick="openRunModal(); return false;" style="padding:7px 14px; font-size:12.5px;"><i class="fa-solid fa-rotate-right"></i> Run Again</a>
   </div>
+  <div class="table-responsive">
   <table class="data-table">
     <thead><tr><th>Check</th><th>Status</th><th>Attempts</th><th>Duration</th><th>When</th></tr></thead>
     <tbody>
@@ -93,6 +96,7 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 <!-- Reuse the same Quick Run modal so "Run Again" works without leaving this page -->

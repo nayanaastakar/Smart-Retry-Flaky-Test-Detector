@@ -5,6 +5,12 @@
    glance (pass / fail / flaky), and a monospace numeral face for anything
    that is data (durations, counts, percentages) so the dashboard reads like
    an instrument panel, not a marketing page.
+
+   Responsive breakpoints:
+     ≥1200px   Desktop (default)
+     900–1199px Tablet landscape  — sidebar collapses to icons, 2-col grids
+     600–899px  Tablet portrait   — sidebar hidden, hamburger shown, 2-col KPI
+     <600px     Mobile            — single column everywhere, condensed topbar
    ========================================================================= */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
@@ -110,6 +116,8 @@ a { color: inherit; text-decoration: none; }
   flex-direction: column;
   padding: 20px 14px;
   z-index: 40;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .brand {
@@ -285,8 +293,132 @@ a { color: inherit; text-decoration: none; }
 .grid-kpi { grid-template-columns: repeat(4, 1fr); }
 .grid-2col { grid-template-columns: 1.6fr 1fr; }
 .grid-3col { grid-template-columns: repeat(3, 1fr); }
-@media (max-width: 1180px) { .grid-kpi { grid-template-columns: repeat(2, 1fr); } .grid-2col { grid-template-columns: 1fr; } }
-@media (max-width: 720px) { .app-shell { grid-template-columns: 1fr; } .sidebar { display: none; } .grid-kpi { grid-template-columns: 1fr; } }
+
+/* =========================================================================
+   RESPONSIVE SYSTEM
+   ========================================================================= */
+
+/* --- Hamburger / mobile nav toggle ----------------------------------- */
+.nav-hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px; height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 16px;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.nav-hamburger:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+
+/* Overlay behind mobile sidebar */
+.sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(3px);
+  z-index: 39;
+}
+.sidebar-overlay.open { display: block; }
+
+/* ---- Tablet landscape (900–1199 px) ---------------------------------- */
+@media (max-width: 1199px) {
+  :root { --sidebar-width: 230px; }
+  .grid-kpi { grid-template-columns: repeat(2, 1fr); }
+  .grid-3col { grid-template-columns: repeat(2, 1fr); }
+  .topbar-search { width: 240px; }
+}
+
+/* ---- Tablet portrait (600–899 px) ------------------------------------ */
+@media (max-width: 899px) {
+  :root { --sidebar-width: 264px; }
+
+  /* Sidebar slides in from the left as a drawer */
+  .app-shell { grid-template-columns: 1fr; }
+  .sidebar {
+    position: fixed; left: -280px; top: 0; bottom: 0;
+    width: var(--sidebar-width);
+    z-index: 50;
+    transition: left 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: none;
+  }
+  .sidebar.open {
+    left: 0;
+    box-shadow: 4px 0 32px rgba(0,0,0,0.5);
+  }
+
+  .nav-hamburger { display: flex; }
+
+  /* Topbar: show hamburger on the left */
+  .topbar { padding: 0 16px; gap: 10px; }
+  .topbar-search { width: 100%; max-width: 300px; }
+
+  /* KPI grid: 2 columns */
+  .grid-kpi { grid-template-columns: repeat(2, 1fr); }
+  .grid-2col { grid-template-columns: 1fr; }
+  .grid-3col { grid-template-columns: 1fr 1fr; }
+
+  .page-body { padding: 18px 16px; }
+
+  /* Page header stacks on small tablets */
+  .page-header { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---- Mobile (< 600 px) ----------------------------------------------- */
+@media (max-width: 599px) {
+  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar-search { display: none; }  /* hide search bar, use command palette */
+  .topbar-search.mobile-visible { display: flex; position: fixed; top: 0; left: 0; right: 0;
+    z-index: 60; border-radius: 0; border-left: none; border-right: none; border-top: none;
+    background: var(--bg-surface); padding: 10px 14px; }
+  .kbd-hint { display: none; }
+
+  .btn-ghost .btn-label { display: none; } /* icon-only on mobile for topbar buttons */
+
+  .grid-kpi { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid-2col { grid-template-columns: 1fr; }
+  .grid-3col { grid-template-columns: 1fr; }
+
+  .kpi-value { font-size: 22px; }
+  .kpi-icon { width: 30px; height: 30px; font-size: 13px; margin-bottom: 10px; }
+  .card { padding: 15px; }
+
+  .page-body { padding: 14px 12px; }
+  .page-title { font-size: 18px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .page-header > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* Tables: horizontal scroll container */
+  .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: var(--radius-lg); }
+  .data-table { min-width: 540px; }
+  .data-table th,
+  .data-table td { padding: 10px 10px; font-size: 12px; white-space: nowrap; }
+
+  /* Progress modal & quick-run modal full-width */
+  #runModalOverlay .card { width: 96vw !important; }
+
+  /* Toast stack at bottom, full-width */
+  .toast-stack { left: 10px; right: 10px; bottom: 14px; }
+  .toast { min-width: 0; width: 100%; }
+
+  /* Badges: smaller */
+  .badge { font-size: 10px; padding: 2px 7px; }
+
+  /* Topbar logout & avatar buttons */
+  .topbar-actions { gap: 8px; }
+  .topbar-actions .btn { padding: 7px 10px; font-size: 12px; }
+}
+
+/* Very narrow phones */
+@media (max-width: 380px) {
+  .grid-kpi { grid-template-columns: 1fr; }
+  .kpi-value { font-size: 20px; }
+  .topbar-actions .avatar { width: 28px; height: 28px; font-size: 11px; }
+}
 
 .card {
   background: var(--bg-surface);
